@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+if [[ -f "${ROOT_DIR}/.env" ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  source "${ROOT_DIR}/.env"
+  set +a
+fi
+
+DEST_DIR="${1:-${RUNTIME_DIR:-${HOME}/coding-agent}}"
+mkdir -p "$DEST_DIR"
+
+tar -C "$ROOT_DIR" \
+  --exclude='.git' \
+  --exclude='.env' \
+  --exclude='logs/*.log' \
+  --exclude='state/processed-feedback.json' \
+  -cf - . | tar -C "$DEST_DIR" -xf -
+
+mkdir -p "$DEST_DIR/logs" "$DEST_DIR/state"
+: > "$DEST_DIR/logs/.gitkeep"
+: > "$DEST_DIR/state/.gitkeep"
+
+printf 'Deployed repository to %s\n' "$DEST_DIR"
+if [[ -f "$DEST_DIR/.env" ]]; then
+  printf '.env preserved at %s/.env\n' "$DEST_DIR"
+else
+  printf 'No .env found in destination. Copy .env.example to .env and configure it.\n'
+fi

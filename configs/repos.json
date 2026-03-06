@@ -1,0 +1,38 @@
+{
+  "system": {
+    "pr_label": "coding-agent"
+  },
+  "repos": [
+    {
+      "slug": "noderef/noderef",
+      "enabled": true,
+      "local_path": "~/projects/noderef/noderef",
+      "instructions_file": "configs/repos/noderef__noderef.md",
+      "test_command": "pnpm test",
+      "forbidden_paths": [
+        ".env",
+        ".env.*",
+        ".runtime",
+        "master.key",
+        "**/master.key",
+        "dev.db",
+        "dev.db*",
+        "test.db",
+        "test.db*",
+        "apps/backend/prisma/dev.db",
+        "apps/backend/prisma/dev.db*",
+        "dist",
+        "resources",
+        "node-src",
+        "build-scripts",
+        "_app_scaffolds",
+        ".deploy-backend",
+        "apps/backend/src/ai/.generated",
+        ".github/workflows",
+        "Dockerfile",
+        "docker-compose.yml",
+        "neutralino.config.json"
+      ]
+    }
+  ]
+}

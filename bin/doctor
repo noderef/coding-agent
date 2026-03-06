@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+# shellcheck source=lib/common.sh
+source "${ROOT_DIR}/lib/common.sh"
+# shellcheck source=lib/repo-config.sh
+source "${ROOT_DIR}/lib/repo-config.sh"
+
+failures=0
+
+check_ok() {
+  printf '[ok] %s\n' "$1"
+}
+
+check_fail() {
+  printf '[fail] %s\n' "$1"
+  failures=$((failures + 1))
+}
+
+if [[ ! -f "${ROOT_DIR}/.env" ]]; then
+  check_fail ".env file missing at ${ROOT_DIR}/.env"
+else
+  check_ok ".env file present"
+  load_env_file "${ROOT_DIR}/.env"
+fi
+
+if require_commands gh jq git flock; then
+  check_ok "Required commands available (gh, jq, git, flock)"
+else
+  check_fail "Missing one or more required commands"
+fi
+
+if gh auth status >/dev/null 2>&1; then
+  check_ok "gh auth status is valid"
+else
+  check_fail "gh auth is not ready (run: gh auth login)"
+fi
+
+: "${PROJECTS_DIR:=${HOME}/projects}"
+: "${RUNTIME_DIR:=${HOME}/projects/_worktrees}"
+: "${STATE_DIR:=${ROOT_DIR}/state}"
+: "${LOG_DIR:=${ROOT_DIR}/logs}"
+: "${CONFIG_FILE:=${ROOT_DIR}/configs/repos.json}"
+
+if path_is_within "$PROJECTS_DIR" "$ROOT_DIR"; then
+  check_fail "PROJECTS_DIR must be outside repo root (${ROOT_DIR}). Current: ${PROJECTS_DIR}"
+else
+  check_ok "PROJECTS_DIR is outside repo root"
+fi
+
+if path_is_within "$RUNTIME_DIR" "$ROOT_DIR"; then
+  check_fail "RUNTIME_DIR must be outside repo root (${ROOT_DIR}). Current: ${RUNTIME_DIR}"
+else
+  check_ok "RUNTIME_DIR is outside repo root"
+fi
+
+if repo_config_validate; then
+  check_ok "Managed repos config parses (${CONFIG_FILE})"
+else
+  check_fail "Managed repos config is missing or invalid (${CONFIG_FILE})"
+fi
+
+if [[ -n "${AGENT_CMD:-}" ]]; then
+  if [[ -x "$AGENT_CMD" ]] || command -v "$AGENT_CMD" >/dev/null 2>&1; then
+    check_ok "Agent command is available (${AGENT_CMD})"
+  else
+    check_fail "Agent command not found/executable (${AGENT_CMD})"
+  fi
+else
+  check_fail "AGENT_CMD is not set in .env"
+fi
+
+if mkdir -p "$PROJECTS_DIR" "$RUNTIME_DIR" "$STATE_DIR" "$LOG_DIR" >/dev/null 2>&1; then
+  check_ok "Runtime directories exist or were created"
+else
+  check_fail "Could not create one or more runtime directories ($PROJECTS_DIR, $RUNTIME_DIR, $STATE_DIR, $LOG_DIR)"
+fi
+
+if [[ "$failures" -gt 0 ]]; then
+  printf '\nDoctor found %s problem(s).\n' "$failures"
+  exit 1
+fi
+
+printf '\nDoctor checks passed.\n'
