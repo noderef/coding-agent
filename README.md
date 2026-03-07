@@ -52,7 +52,8 @@ Then:
 ## Install deps (`install.sh`)
 
 Default behavior:
-- Installs system deps (`git`, `jq`, `gh`, `flock`, `curl`, `cron`, `node`, `npm`).
+- Installs system deps (`git`, `jq`, `gh`, `flock`, `curl`, `cron`, and a supported Node.js runtime with npm).
+- On apt-based systems, removes conflicting distro `npm` packages and upgrades/install Node.js 22 automatically if the distro default is older than Node 20.
 - Creates `.env` from `.env.example` if missing.
 - Installs Cline CLI with `npm install -g cline`.
 - Installs/updates cron entries for both workers.

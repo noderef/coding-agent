@@ -62,7 +62,7 @@ install_system_packages() {
   case "$pm" in
     apt)
       as_root apt-get update
-      as_root apt-get install -y git jq curl ca-certificates util-linux gh cron nodejs npm
+      as_root apt-get install -y git jq curl ca-certificates util-linux gh cron gnupg
       ;;
     dnf)
       as_root dnf install -y git jq curl ca-certificates util-linux gh cronie nodejs npm
@@ -137,6 +137,59 @@ install_agent_via_download_url() {
 
 node_major_version() {
   node --version | sed -E 's/^v([0-9]+).*/\1/'
+}
+
+cleanup_conflicting_apt_node_packages() {
+  local remove_pkgs=()
+  local pkg
+
+  for pkg in npm nodejs-doc libnode-dev; do
+    if dpkg -s "$pkg" >/dev/null 2>&1; then
+      remove_pkgs+=("$pkg")
+    fi
+  done
+
+  if [[ "${#remove_pkgs[@]}" -gt 0 ]]; then
+    log "Removing conflicting Debian/Ubuntu Node packages: ${remove_pkgs[*]}"
+    as_root apt-get remove -y "${remove_pkgs[@]}"
+  fi
+}
+
+install_nodesource_node_apt() {
+  local tmp
+  tmp="$(mktemp /tmp/nodesource-setup.XXXXXX)"
+
+  cleanup_conflicting_apt_node_packages
+
+  log "Installing Node.js 22 from NodeSource"
+  curl -fsSL "https://deb.nodesource.com/setup_22.x" -o "$tmp"
+  as_root bash "$tmp"
+  rm -f "$tmp"
+
+  as_root apt-get install -y nodejs
+}
+
+ensure_supported_node_runtime() {
+  local pm="$1"
+
+  if command_exists node && command_exists npm; then
+    local major
+    major="$(node_major_version)"
+    if [[ -n "$major" ]] && (( major >= 20 )); then
+      return 0
+    fi
+  fi
+
+  case "$pm" in
+    apt)
+      install_nodesource_node_apt
+      ;;
+    *)
+      if ! command_exists node || ! command_exists npm; then
+        die "Node.js 20+ and npm are required, but automatic installation is only configured for apt-based systems."
+      fi
+      ;;
+  esac
 }
 
 ensure_node_version() {
@@ -270,6 +323,7 @@ main() {
   log "Detected package manager: $pm"
 
   install_system_packages "$pm"
+  ensure_supported_node_runtime "$pm"
   check_required_commands
 
   ensure_env_file
