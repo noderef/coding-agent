@@ -265,6 +265,19 @@ reload_env_file() {
   fi
 }
 
+normalize_agent_cmd() {
+  local cmd_value="${AGENT_CMD:-cline}"
+
+  if [[ "$cmd_value" == */* && ! -x "$cmd_value" ]]; then
+    local fallback
+    fallback="$(basename "$cmd_value")"
+    if command -v "$fallback" >/dev/null 2>&1; then
+      log "AGENT_CMD path not found; using '$fallback' from PATH instead"
+      AGENT_CMD="$fallback"
+    fi
+  fi
+}
+
 check_required_commands() {
   local missing=0
   local cmd
@@ -328,6 +341,7 @@ main() {
 
   ensure_env_file
   reload_env_file
+  normalize_agent_cmd
   install_agent_cli
   install_cron_entries
 

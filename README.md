@@ -101,7 +101,7 @@ INSTALL_CRON=false ./install.sh
 - `AGENT_GITHUB_USERNAME`
 - `AUTHORIZED_USERS`
 - `AGENT_BACKEND=cline`
-- `AGENT_CMD`
+- `AGENT_CMD` (`cline` is the portable default; avoid hardcoding `/usr/local/bin/cline`)
 - `AGENT_MODEL`
 - `AGENT_BASE_URL`
 - `AGENT_API_KEY`
