@@ -59,6 +59,59 @@ if ! acquire_shared_lock "$LOCK_FILE"; then
 fi
 
 SYSTEM_PR_LABEL="$(repo_system_pr_label)"
+ISSUE_CLEANUP_ACTIVE=0
+ISSUE_CLEANUP_REPO_SLUG=""
+ISSUE_CLEANUP_ISSUE_NUMBER=""
+ISSUE_CLEANUP_LOCAL_REPO_PATH=""
+ISSUE_CLEANUP_WORKTREE_PATH=""
+
+issue_cleanup_on_error() {
+  local exit_code="$?"
+
+  if [[ "$ISSUE_CLEANUP_ACTIVE" -ne 1 ]]; then
+    return "$exit_code"
+  fi
+
+  ISSUE_CLEANUP_ACTIVE=0
+
+  log_error "Issue processing failed unexpectedly for ${ISSUE_CLEANUP_REPO_SLUG}#${ISSUE_CLEANUP_ISSUE_NUMBER}"
+  gh_issue_comment \
+    "$ISSUE_CLEANUP_REPO_SLUG" \
+    "$ISSUE_CLEANUP_ISSUE_NUMBER" \
+    "Autonomous implementation failed unexpectedly. Cleanup was applied and the issue was returned for retry. Logs are available to maintainers on the runtime host." \
+    || true
+  gh_issue_remove_label "$ISSUE_CLEANUP_REPO_SLUG" "$ISSUE_CLEANUP_ISSUE_NUMBER" "in-progress" || true
+  gh_issue_unassign "$ISSUE_CLEANUP_REPO_SLUG" "$ISSUE_CLEANUP_ISSUE_NUMBER" "$AGENT_GITHUB_USERNAME" || true
+
+  if [[ -n "$ISSUE_CLEANUP_WORKTREE_PATH" ]] && [[ -n "$ISSUE_CLEANUP_LOCAL_REPO_PATH" ]]; then
+    git -C "$ISSUE_CLEANUP_LOCAL_REPO_PATH" worktree remove --force "$ISSUE_CLEANUP_WORKTREE_PATH" >/dev/null 2>&1 || true
+  fi
+
+  return "$exit_code"
+}
+
+issue_cleanup_activate() {
+  local repo_slug="$1"
+  local issue_number="$2"
+  local local_repo_path="${3:-}"
+  local worktree_path="${4:-}"
+
+  ISSUE_CLEANUP_REPO_SLUG="$repo_slug"
+  ISSUE_CLEANUP_ISSUE_NUMBER="$issue_number"
+  ISSUE_CLEANUP_LOCAL_REPO_PATH="$local_repo_path"
+  ISSUE_CLEANUP_WORKTREE_PATH="$worktree_path"
+  ISSUE_CLEANUP_ACTIVE=1
+}
+
+issue_cleanup_deactivate() {
+  ISSUE_CLEANUP_ACTIVE=0
+  ISSUE_CLEANUP_REPO_SLUG=""
+  ISSUE_CLEANUP_ISSUE_NUMBER=""
+  ISSUE_CLEANUP_LOCAL_REPO_PATH=""
+  ISSUE_CLEANUP_WORKTREE_PATH=""
+}
+
+trap 'issue_cleanup_on_error' ERR
 
 collect_candidate_issues() {
   local repos_json='[]'
@@ -196,13 +249,17 @@ create_issue_worktree() {
     git -C "$local_path" worktree remove --force "$worktree_path" >/dev/null 2>&1 || rm -rf "$worktree_path"
   fi
 
-  if git -C "$local_path" show-ref --verify --quiet "refs/heads/${branch_name}"; then
+  if git -C "$local_path" ls-remote --exit-code --heads origin "$branch_name" >/dev/null 2>&1; then
+    if git -C "$local_path" show-ref --verify --quiet "refs/heads/${branch_name}"; then
+      git -C "$local_path" branch -f "$branch_name" "origin/${branch_name}" >/dev/null
+    else
+      git -C "$local_path" branch "$branch_name" "origin/${branch_name}" >/dev/null
+    fi
     git -C "$local_path" worktree add "$worktree_path" "$branch_name" >/dev/null
     return 0
   fi
 
-  if git -C "$local_path" ls-remote --exit-code --heads origin "$branch_name" >/dev/null 2>&1; then
-    git -C "$local_path" fetch origin "${branch_name}:${branch_name}" >/dev/null
+  if git -C "$local_path" show-ref --verify --quiet "refs/heads/${branch_name}"; then
     git -C "$local_path" worktree add "$worktree_path" "$branch_name" >/dev/null
     return 0
   fi
@@ -286,6 +343,7 @@ process_issue() {
 
   gh_issue_comment "$repo_slug" "$issue_number" "Starting autonomous implementation run for this issue. I will post an update with results shortly."
   gh_issue_add_label "$repo_slug" "$issue_number" "in-progress"
+  issue_cleanup_activate "$repo_slug" "$issue_number"
 
   local local_repo_path
   local default_branch
@@ -299,11 +357,13 @@ process_issue() {
   local test_command
 
   local_repo_path="$(repo_get_local_path "$repo_slug")"
+  issue_cleanup_activate "$repo_slug" "$issue_number" "$local_repo_path"
   default_branch="$(prepare_repo_checkout "$repo_slug" "$local_repo_path")"
   branch_name="$(build_issue_branch_name "$issue_title" "$issue_number" "$labels_csv")"
   repo_key="$(repo_slug_to_fs_key "$repo_slug")"
   worktree_path="${RUNTIME_DIR}/worktrees/${repo_key}/issue-${issue_number}"
   ensure_dir "$(dirname "$worktree_path")"
+  issue_cleanup_activate "$repo_slug" "$issue_number" "$local_repo_path" "$worktree_path"
 
   create_issue_worktree "$local_repo_path" "$worktree_path" "$branch_name" "$default_branch"
 
@@ -343,6 +403,7 @@ process_issue() {
     gh_issue_remove_label "$repo_slug" "$issue_number" "in-progress"
     gh_issue_unassign "$repo_slug" "$issue_number" "$AGENT_GITHUB_USERNAME"
     git -C "$local_repo_path" worktree remove --force "$worktree_path" >/dev/null 2>&1 || true
+    issue_cleanup_deactivate
     return 0
   fi
 
@@ -356,6 +417,7 @@ process_issue() {
       gh_issue_unassign "$repo_slug" "$issue_number" "$AGENT_GITHUB_USERNAME"
     fi
     git -C "$local_repo_path" worktree remove --force "$worktree_path" >/dev/null 2>&1 || true
+    issue_cleanup_deactivate
     return 0
   fi
 
@@ -373,6 +435,7 @@ EOF
     git -C "$worktree_path" reset --hard >/dev/null
     git -C "$worktree_path" clean -fd >/dev/null
     git -C "$local_repo_path" worktree remove --force "$worktree_path" >/dev/null 2>&1 || true
+    issue_cleanup_deactivate
     return 0
   fi
 
@@ -383,6 +446,7 @@ EOF
     gh_issue_remove_label "$repo_slug" "$issue_number" "in-progress"
     gh_issue_unassign "$repo_slug" "$issue_number" "$AGENT_GITHUB_USERNAME"
     git -C "$local_repo_path" worktree remove --force "$worktree_path" >/dev/null 2>&1 || true
+    issue_cleanup_deactivate
     return 0
   fi
 
@@ -392,6 +456,7 @@ EOF
     gh_issue_remove_label "$repo_slug" "$issue_number" "in-progress"
     gh_issue_unassign "$repo_slug" "$issue_number" "$AGENT_GITHUB_USERNAME"
     git -C "$local_repo_path" worktree remove --force "$worktree_path" >/dev/null 2>&1 || true
+    issue_cleanup_deactivate
     return 0
   fi
 
@@ -402,6 +467,7 @@ EOF
     gh_issue_remove_label "$repo_slug" "$issue_number" "in-progress"
     gh_issue_unassign "$repo_slug" "$issue_number" "$AGENT_GITHUB_USERNAME"
     git -C "$local_repo_path" worktree remove --force "$worktree_path" >/dev/null 2>&1 || true
+    issue_cleanup_deactivate
     return 0
   fi
 
@@ -441,6 +507,7 @@ PRBODY
   gh_issue_add_label "$repo_slug" "$issue_number" "pr-created"
   gh_issue_unassign "$repo_slug" "$issue_number" "$AGENT_GITHUB_USERNAME"
 
+  issue_cleanup_deactivate
   git -C "$local_repo_path" worktree remove --force "$worktree_path" >/dev/null 2>&1 || true
 }
 

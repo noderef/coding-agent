@@ -2,6 +2,11 @@
 
 set -euo pipefail
 
+gh_api_paginated_array() {
+  local endpoint="$1"
+  gh api --paginate "$endpoint" | jq -s 'add'
+}
+
 gh_repo_default_branch() {
   local repo_slug="$1"
   gh repo view "$repo_slug" --json defaultBranchRef --jq '.defaultBranchRef.name'
@@ -116,13 +121,13 @@ gh_list_open_prs() {
 gh_pr_issue_comments() {
   local repo_slug="$1"
   local pr_number="$2"
-  gh api "/repos/${repo_slug}/issues/${pr_number}/comments?per_page=100"
+  gh_api_paginated_array "/repos/${repo_slug}/issues/${pr_number}/comments?per_page=100"
 }
 
 gh_pr_review_comments() {
   local repo_slug="$1"
   local pr_number="$2"
-  gh api "/repos/${repo_slug}/pulls/${pr_number}/comments?per_page=100"
+  gh_api_paginated_array "/repos/${repo_slug}/pulls/${pr_number}/comments?per_page=100"
 }
 
 gh_pr_diff() {
@@ -130,4 +135,3 @@ gh_pr_diff() {
   local pr_number="$2"
   gh pr diff "$pr_number" --repo "$repo_slug"
 }
-
