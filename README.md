@@ -43,11 +43,20 @@ Then:
 
 1. Edit `.env`.
 2. Run `gh auth login`.
-3. Configure `configs/repos.json`.
-4. Run `./bin/doctor`.
-5. Run once manually:
+3. Configure Cline auth (custom LiteLLM endpoint is supported):
+   - `cline auth -p openai -k "$AGENT_API_KEY" -b "$AGENT_BASE_URL" -m "$AGENT_MODEL"`
+4. Configure `configs/repos.json`.
+5. Run `./bin/doctor`.
+6. Run once manually:
    - `./agents/issue-worker.sh`
    - `./agents/feedback-worker.sh`
+
+If you use an internal/self-signed CA, set this once in your shell profile:
+
+```bash
+echo 'export NODE_EXTRA_CA_CERTS=/usr/local/share/ca-certificates/homelab-ca.crt' >> ~/.bashrc
+source ~/.bashrc
+```
 
 ## Install deps (`install.sh`)
 
@@ -101,12 +110,17 @@ INSTALL_CRON=false ./install.sh
 - `AGENT_BACKEND=cline`
 - `AGENT_CMD` (`cline` is the portable default; avoid hardcoding `/usr/local/bin/cline`)
 - `AGENT_MODEL`
-- `AGENT_BASE_URL`
-- `AGENT_API_KEY`
+- `AGENT_BASE_URL` (recommended; used for compatibility env hints and `cline auth -b`)
+- `AGENT_API_KEY` (recommended; used for compatibility env hints and `cline auth -k`)
 - `PROJECTS_DIR`, `RUNTIME_DIR`, `STATE_DIR`, `LOG_DIR`
 - `ISSUE_TIMEOUT_MINUTES`, `FEEDBACK_TIMEOUT_MINUTES`
 - `MIN_AVAILABLE_MB`, `MAX_OPEN_AGENT_PRS`, `DAILY_FEEDBACK_LIMIT`
 - `CONFIG_FILE`
+
+Model switching:
+- For worker runs, update `AGENT_MODEL` in `.env`.
+- For ad-hoc Cline CLI runs, use `cline -m <model> "<prompt>"`.
+- To change the default saved in Cline auth config, run `cline auth -p openai -m <model>`.
 
 Path behavior:
 - `PROJECTS_DIR` = persistent repo clones (`owner/repo`).
