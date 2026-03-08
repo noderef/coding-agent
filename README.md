@@ -62,8 +62,6 @@ Optional overrides:
 
 ```bash
 CLINE_VERSION=latest ./install.sh
-AGENT_INSTALL_COMMAND='...' ./install.sh
-AGENT_DOWNLOAD_URL='https://...' ./install.sh
 INSTALL_CRON=false ./install.sh
 ```
 

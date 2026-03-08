@@ -5,3 +5,4 @@ state/*.tmp
 .DS_Store
 projects/
 worktrees/
+.vscode/

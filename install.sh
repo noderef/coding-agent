@@ -94,47 +94,6 @@ expand_path() {
   esac
 }
 
-resolve_agent_cmd_basename() {
-  local cmd_value="${AGENT_CMD:-cline}"
-  if [[ "$cmd_value" == */* ]]; then
-    basename "$cmd_value"
-  else
-    printf '%s\n' "$cmd_value"
-  fi
-}
-
-agent_cmd_available() {
-  local cmd_value="${AGENT_CMD:-cline}"
-
-  if [[ "$cmd_value" == */* ]]; then
-    [[ -x "$cmd_value" ]]
-    return $?
-  fi
-
-  command_exists "$cmd_value"
-}
-
-install_agent_via_download_url() {
-  local url="${AGENT_DOWNLOAD_URL:-}"
-  [[ -n "$url" ]] || return 1
-
-  local tmp
-  tmp="$(mktemp /tmp/coding-agent-cli.XXXXXX)"
-
-  log "Downloading agent CLI from AGENT_DOWNLOAD_URL"
-  curl -fL "$url" -o "$tmp"
-
-  local target
-  if [[ "${AGENT_CMD:-}" == */* ]]; then
-    target="${AGENT_CMD}"
-  else
-    target="/usr/local/bin/${AGENT_CMD:-cline}"
-  fi
-
-  as_root install -m 0755 "$tmp" "$target"
-  rm -f "$tmp"
-}
-
 node_major_version() {
   node --version | sed -E 's/^v([0-9]+).*/\1/'
 }
@@ -221,29 +180,18 @@ install_agent_via_npm() {
 }
 
 install_agent_cli() {
-  if agent_cmd_available; then
-    log "Agent CLI already available: ${AGENT_CMD:-cline}"
+  if command_exists cline; then
+    log "Agent CLI already available: cline"
     return 0
   fi
 
-  if [[ "${SKIP_AGENT_INSTALL:-false}" == "true" ]]; then
-    die "Agent CLI is missing and SKIP_AGENT_INSTALL=true."
+  install_agent_via_npm
+
+  if ! command_exists cline; then
+    die "Agent CLI still not found after installation: cline"
   fi
 
-  if [[ -n "${AGENT_INSTALL_COMMAND:-}" ]]; then
-    log "Installing agent CLI via AGENT_INSTALL_COMMAND"
-    bash -lc "$AGENT_INSTALL_COMMAND"
-  elif [[ -n "${AGENT_DOWNLOAD_URL:-}" ]]; then
-    install_agent_via_download_url
-  else
-    install_agent_via_npm
-  fi
-
-  if ! agent_cmd_available; then
-    die "Agent CLI still not found after installation: ${AGENT_CMD:-cline}"
-  fi
-
-  log "Agent CLI installed: $(resolve_agent_cmd_basename)"
+  log "Agent CLI installed: cline"
 }
 
 ensure_env_file() {
