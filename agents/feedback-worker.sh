@@ -19,13 +19,18 @@ source "${ROOT_DIR}/lib/state.sh"
 load_env_file "${ROOT_DIR}/.env"
 
 : "${AGENT_GITHUB_USERNAME:?AGENT_GITHUB_USERNAME is required}"
-: "${PROJECTS_DIR:=${HOME}/projects}"
-: "${RUNTIME_DIR:=${HOME}/projects/_worktrees}"
+: "${PROJECTS_DIR:=./projects}"
+: "${RUNTIME_DIR:=./worktrees}"
 : "${STATE_DIR:=${ROOT_DIR}/state}"
 : "${LOG_DIR:=${ROOT_DIR}/logs}"
 : "${FEEDBACK_TIMEOUT_MINUTES:=35}"
 : "${MIN_AVAILABLE_MB:=512}"
 : "${DAILY_FEEDBACK_LIMIT:=0}"
+
+PROJECTS_DIR="$(expand_path "$PROJECTS_DIR")"
+RUNTIME_DIR="$(expand_path "$RUNTIME_DIR")"
+STATE_DIR="$(expand_path "$STATE_DIR")"
+LOG_DIR="$(expand_path "$LOG_DIR")"
 
 LOCK_FILE="${STATE_DIR}/worker.lock"
 

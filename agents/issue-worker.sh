@@ -19,14 +19,19 @@ source "${ROOT_DIR}/lib/agent-runner.sh"
 load_env_file "${ROOT_DIR}/.env"
 
 : "${AGENT_GITHUB_USERNAME:?AGENT_GITHUB_USERNAME is required}"
-: "${PROJECTS_DIR:=${HOME}/projects}"
-: "${RUNTIME_DIR:=${HOME}/projects/_worktrees}"
+: "${PROJECTS_DIR:=./projects}"
+: "${RUNTIME_DIR:=./worktrees}"
 : "${STATE_DIR:=${ROOT_DIR}/state}"
 : "${LOG_DIR:=${ROOT_DIR}/logs}"
 : "${ISSUE_TIMEOUT_MINUTES:=45}"
 : "${MIN_AVAILABLE_MB:=512}"
 : "${MAX_OPEN_AGENT_PRS:=0}"
 : "${UNASSIGN_ON_NOOP:=true}"
+
+PROJECTS_DIR="$(expand_path "$PROJECTS_DIR")"
+RUNTIME_DIR="$(expand_path "$RUNTIME_DIR")"
+STATE_DIR="$(expand_path "$STATE_DIR")"
+LOG_DIR="$(expand_path "$LOG_DIR")"
 
 LOCK_FILE="${STATE_DIR}/worker.lock"
 
@@ -333,10 +338,6 @@ process_issue() {
 
   log_info "Selected issue ${repo_slug}#${issue_number}: ${issue_title}"
 
-  gh_issue_comment "$repo_slug" "$issue_number" "Starting autonomous implementation run for this issue. I will post an update with results shortly."
-  gh_issue_add_label "$repo_slug" "$issue_number" "in-progress"
-  issue_cleanup_activate "$repo_slug" "$issue_number"
-
   local local_repo_path
   local default_branch
   local branch_name
@@ -358,6 +359,8 @@ process_issue() {
   issue_cleanup_activate "$repo_slug" "$issue_number" "$local_repo_path" "$worktree_path"
 
   create_issue_worktree "$local_repo_path" "$worktree_path" "$branch_name" "$default_branch"
+  gh_issue_comment "$repo_slug" "$issue_number" "Starting autonomous implementation run for this issue. I will post an update with results shortly."
+  gh_issue_add_label "$repo_slug" "$issue_number" "in-progress"
 
   instructions_file="$(repo_get_instructions_file "$repo_slug")"
   forbidden_json="$(repo_get_forbidden_paths_json "$repo_slug")"

@@ -30,7 +30,10 @@ expand_path() {
   case "$value" in
     ~) printf '%s\n' "$HOME" ;;
     ~/*) printf '%s/%s\n' "$HOME" "${value#~/}" ;;
-    *) printf '%s\n' "$value" ;;
+    /*) printf '%s\n' "$value" ;;
+    .) printf '%s\n' "$ROOT_DIR" ;;
+    ./*) printf '%s/%s\n' "$ROOT_DIR" "${value#./}" ;;
+    *) printf '%s/%s\n' "$ROOT_DIR" "$value" ;;
   esac
 }
 
