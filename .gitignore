@@ -6,3 +6,7 @@ state/*.tmp
 projects/
 worktrees/
 .vscode/
+
+# Keep .temp directory marker only
+.temp/*
+!.temp/.gitkeep
