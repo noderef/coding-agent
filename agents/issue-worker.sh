@@ -528,7 +528,26 @@ main() {
 
   local selected
   selected="$(jq -c '.[0]' <<<"$candidates")"
+  local process_exit=0
+  set +e
   process_issue "$selected"
+  process_exit=$?
+  set -e
+
+  if [[ "$process_exit" -ne 0 ]]; then
+    local repo_slug issue_number
+    repo_slug="$(jq -r '.repo_slug' <<<"$selected")"
+    issue_number="$(jq -r '.number' <<<"$selected")"
+    log_error "Issue processing exited unexpectedly for ${repo_slug}#${issue_number}; applying fallback cleanup"
+    gh_issue_comment \
+      "$repo_slug" \
+      "$issue_number" \
+      "Autonomous implementation failed unexpectedly during orchestration. The issue was unassigned to prevent retry loops. Logs are available to maintainers on the runtime host." \
+      || true
+    gh_issue_remove_label "$repo_slug" "$issue_number" "in-progress" || true
+    gh_issue_unassign "$repo_slug" "$issue_number" "$AGENT_GITHUB_USERNAME" || true
+    exit 0
+  fi
 
   log_info "Issue worker finished"
 }

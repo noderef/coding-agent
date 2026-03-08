@@ -62,7 +62,9 @@ gh_issue_unassign() {
   local repo_slug="$1"
   local issue_number="$2"
   local assignee="$3"
-  gh issue edit "$issue_number" --repo "$repo_slug" --remove-assignee "$assignee" >/dev/null 2>&1 || return 0
+  if ! gh issue edit "$issue_number" --repo "$repo_slug" --remove-assignee "$assignee" >/dev/null 2>&1; then
+    log_warn "Failed to unassign ${assignee} from ${repo_slug}#${issue_number}"
+  fi
 }
 
 gh_find_open_pr_by_head() {
