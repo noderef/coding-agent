@@ -35,12 +35,13 @@ build_issue_branch_name() {
   local issue_title="$1"
   local issue_number="$2"
   local labels_csv="$3"
+  local normalized_issue_number
 
   local prefix
   local slug
   prefix="$(branch_prefix_for_labels "$labels_csv")"
   slug="$(slugify "$issue_title")"
+  normalized_issue_number="${issue_number#\#}"
 
-  printf '%s/%s-%s\n' "$prefix" "$slug" "$issue_number"
+  printf '%s/%s-#%s\n' "$prefix" "$slug" "$normalized_issue_number"
 }
-
