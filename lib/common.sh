@@ -175,3 +175,25 @@ safe_cat() {
     cat "$file_path"
   fi
 }
+
+log_excerpt_for_comment() {
+  local file_path="$1"
+  local lines="${2:-60}"
+  local max_chars="${3:-3500}"
+
+  if [[ ! -f "$file_path" ]]; then
+    return 0
+  fi
+
+  local excerpt
+  excerpt="$(tail -n "$lines" "$file_path" 2>/dev/null | tr -cd '\11\12\15\40-\176')"
+  if [[ -z "$excerpt" ]]; then
+    return 0
+  fi
+
+  if (( ${#excerpt} > max_chars )); then
+    excerpt="[truncated]\n${excerpt: -max_chars}"
+  fi
+
+  printf '%s\n' "$excerpt"
+}

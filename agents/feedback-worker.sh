@@ -56,6 +56,7 @@ if ! acquire_shared_lock "$LOCK_FILE"; then
 fi
 
 SYSTEM_PR_LABEL="$(repo_system_pr_label)"
+FEEDBACK_TEST_LOG_FILE=""
 
 is_authorized_user() {
   local username="$1"
@@ -267,21 +268,29 @@ run_test_command_if_configured() {
   local repo_slug="$1"
   local worktree_path="$2"
   local test_cmd
+  local repo_key
+  local test_log
   test_cmd="$(repo_get_test_command "$repo_slug")"
 
   if [[ -z "$test_cmd" ]]; then
+    FEEDBACK_TEST_LOG_FILE=""
     log_info "No test command configured for ${repo_slug}; skipping tests" >&2
     printf '%s\n' "not-configured"
     return 0
   fi
 
-  log_info "Running configured tests: $test_cmd" >&2
+  repo_key="$(repo_slug_to_fs_key "$repo_slug")"
+  test_log="${LOG_DIR}/tests-feedback-${repo_key}-$(date -u +%Y%m%dT%H%M%SZ).log"
+  FEEDBACK_TEST_LOG_FILE="$test_log"
+  log_info "Running configured tests: $test_cmd (log: $test_log)" >&2
   if (
     cd "$worktree_path"
     bash -lc "$test_cmd"
-  ); then
+  ) >"$test_log" 2>&1; then
+    log_info "Configured tests passed (log: $test_log)" >&2
     printf '%s\n' "passed"
   else
+    log_warn "Configured tests failed (log: $test_log)" >&2
     printf '%s\n' "failed"
   fi
 }
@@ -469,11 +478,21 @@ process_feedback_comment() {
   if [[ "$agent_exit" -ne 0 ]]; then
     local fail_note="Autonomous feedback run failed."
     local status="failed"
+    local failure_excerpt=""
     if [[ "$agent_exit" -eq 124 ]]; then
       fail_note="Autonomous feedback run timed out after ${FEEDBACK_TIMEOUT_MINUTES} minutes."
       status="timeout"
     fi
-    gh_pr_comment "$repo_slug" "$pr_number" "${fail_note} (source comment: ${comment_url})"
+    failure_excerpt="$(log_excerpt_for_comment "$agent_log" 80 5000)"
+    gh_pr_comment "$repo_slug" "$pr_number" "$(cat <<EOF
+${fail_note} (source comment: ${comment_url})
+
+Recent output:
+\`\`\`
+${failure_excerpt:-No log output captured.}
+\`\`\`
+EOF
+)"
     state_mark_processed "$key" "$repo_slug" "$pr_number" "$comment_type" "$comment_id" "$comment_author" "$status" "$comment_url" "$fail_note"
     git -C "$local_repo_path" worktree remove --force "$worktree_path" >/dev/null 2>&1 || true
     return 0
@@ -508,7 +527,17 @@ EOF
   local test_status
   test_status="$(run_test_command_if_configured "$repo_slug" "$worktree_path")"
   if [[ "$test_status" == "failed" ]]; then
-    gh_pr_comment "$repo_slug" "$pr_number" "I applied a candidate change for ${comment_url}, but configured tests failed, so nothing was pushed."
+    local test_excerpt=""
+    test_excerpt="$(log_excerpt_for_comment "$FEEDBACK_TEST_LOG_FILE" 80 5000)"
+    gh_pr_comment "$repo_slug" "$pr_number" "$(cat <<EOF
+I applied a candidate change for ${comment_url}, but configured tests failed, so nothing was pushed.
+
+Recent test output:
+\`\`\`
+${test_excerpt:-No test output captured.}
+\`\`\`
+EOF
+)"
     state_mark_processed "$key" "$repo_slug" "$pr_number" "$comment_type" "$comment_id" "$comment_author" "tests_failed" "$comment_url" "tests failed"
     git -C "$local_repo_path" worktree remove --force "$worktree_path" >/dev/null 2>&1 || true
     return 0

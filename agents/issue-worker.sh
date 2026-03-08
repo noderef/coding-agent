@@ -61,6 +61,7 @@ ISSUE_CLEANUP_REPO_SLUG=""
 ISSUE_CLEANUP_ISSUE_NUMBER=""
 ISSUE_CLEANUP_LOCAL_REPO_PATH=""
 ISSUE_CLEANUP_WORKTREE_PATH=""
+ISSUE_TEST_LOG_FILE=""
 
 issue_cleanup_on_error() {
   local exit_code="$?"
@@ -268,21 +269,29 @@ run_test_command_if_configured() {
   local repo_slug="$1"
   local worktree_path="$2"
   local test_cmd
+  local repo_key
+  local test_log
   test_cmd="$(repo_get_test_command "$repo_slug")"
 
   if [[ -z "$test_cmd" ]]; then
+    ISSUE_TEST_LOG_FILE=""
     log_info "No test command configured for ${repo_slug}; skipping tests" >&2
     printf '%s\n' "not-configured"
     return 0
   fi
 
-  log_info "Running configured tests: $test_cmd" >&2
+  repo_key="$(repo_slug_to_fs_key "$repo_slug")"
+  test_log="${LOG_DIR}/tests-issue-${repo_key}-$(date -u +%Y%m%dT%H%M%SZ).log"
+  ISSUE_TEST_LOG_FILE="$test_log"
+  log_info "Running configured tests: $test_cmd (log: $test_log)" >&2
   if (
     cd "$worktree_path"
     bash -lc "$test_cmd"
-  ); then
+  ) >"$test_log" 2>&1; then
+    log_info "Configured tests passed (log: $test_log)" >&2
     printf '%s\n' "passed"
   else
+    log_warn "Configured tests failed (log: $test_log)" >&2
     printf '%s\n' "failed"
   fi
 }
@@ -390,11 +399,21 @@ process_issue() {
 
   if [[ "$agent_exit" -ne 0 ]]; then
     local fail_msg="Autonomous implementation failed."
+    local failure_excerpt=""
     if [[ "$agent_exit" -eq 124 ]]; then
       fail_msg="Autonomous implementation timed out after ${ISSUE_TIMEOUT_MINUTES} minutes."
     fi
 
-    gh_issue_comment "$repo_slug" "$issue_number" "${fail_msg} Logs are available to maintainers on the runtime host."
+    failure_excerpt="$(log_excerpt_for_comment "$agent_log" 80 5000)"
+    gh_issue_comment "$repo_slug" "$issue_number" "$(cat <<EOF
+${fail_msg}
+
+Recent output:
+\`\`\`
+${failure_excerpt:-No log output captured.}
+\`\`\`
+EOF
+)"
     gh_issue_remove_label "$repo_slug" "$issue_number" "in-progress"
     gh_issue_unassign "$repo_slug" "$issue_number" "$AGENT_GITHUB_USERNAME"
     git -C "$local_repo_path" worktree remove --force "$worktree_path" >/dev/null 2>&1 || true
@@ -437,7 +456,17 @@ EOF
   local test_status
   test_status="$(run_test_command_if_configured "$repo_slug" "$worktree_path")"
   if [[ "$test_status" == "failed" ]]; then
-    gh_issue_comment "$repo_slug" "$issue_number" "Agent produced changes, but configured tests failed. No PR was opened."
+    local test_excerpt=""
+    test_excerpt="$(log_excerpt_for_comment "$ISSUE_TEST_LOG_FILE" 80 5000)"
+    gh_issue_comment "$repo_slug" "$issue_number" "$(cat <<EOF
+Agent produced changes, but configured tests failed. No PR was opened.
+
+Recent test output:
+\`\`\`
+${test_excerpt:-No test output captured.}
+\`\`\`
+EOF
+)"
     gh_issue_remove_label "$repo_slug" "$issue_number" "in-progress"
     gh_issue_unassign "$repo_slug" "$issue_number" "$AGENT_GITHUB_USERNAME"
     git -C "$local_repo_path" worktree remove --force "$worktree_path" >/dev/null 2>&1 || true
