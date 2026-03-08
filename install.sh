@@ -179,6 +179,34 @@ install_agent_via_npm() {
   as_root npm install -g "$pkg"
 }
 
+install_pnpm_cli() {
+  if command_exists pnpm; then
+    log "pnpm already available"
+    return 0
+  fi
+
+  ensure_node_version
+
+  if command_exists corepack; then
+    log "Installing pnpm via Corepack"
+    if as_root corepack enable && as_root corepack prepare pnpm@latest --activate; then
+      :
+    else
+      log "Corepack installation failed; falling back to npm"
+      as_root npm install -g pnpm
+    fi
+  else
+    log "Corepack not found; installing pnpm via npm"
+    as_root npm install -g pnpm
+  fi
+
+  if ! command_exists pnpm; then
+    die "pnpm is still not available after installation"
+  fi
+
+  log "pnpm installed: $(pnpm --version)"
+}
+
 install_agent_cli() {
   if command_exists cline; then
     log "Agent CLI already available: cline"
@@ -229,7 +257,7 @@ normalize_agent_cmd() {
 check_required_commands() {
   local missing=0
   local cmd
-  for cmd in git jq gh flock curl node npm; do
+  for cmd in git jq gh flock curl node npm pnpm; do
     if ! command_exists "$cmd"; then
       printf '[install] missing command after install: %s\n' "$cmd" >&2
       missing=1
@@ -285,6 +313,7 @@ main() {
 
   install_system_packages "$pm"
   ensure_supported_node_runtime "$pm"
+  install_pnpm_cli
   check_required_commands
 
   ensure_env_file
