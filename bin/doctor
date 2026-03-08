@@ -46,17 +46,8 @@ fi
 : "${LOG_DIR:=${ROOT_DIR}/logs}"
 : "${CONFIG_FILE:=${ROOT_DIR}/configs/repos.json}"
 
-if path_is_within "$PROJECTS_DIR" "$ROOT_DIR"; then
-  check_fail "PROJECTS_DIR must be outside repo root (${ROOT_DIR}). Current: ${PROJECTS_DIR}"
-else
-  check_ok "PROJECTS_DIR is outside repo root"
-fi
-
-if path_is_within "$RUNTIME_DIR" "$ROOT_DIR"; then
-  check_fail "RUNTIME_DIR must be outside repo root (${ROOT_DIR}). Current: ${RUNTIME_DIR}"
-else
-  check_ok "RUNTIME_DIR is outside repo root"
-fi
+check_ok "PROJECTS_DIR configured (${PROJECTS_DIR})"
+check_ok "RUNTIME_DIR configured (${RUNTIME_DIR})"
 
 if repo_config_validate; then
   check_ok "Managed repos config parses (${CONFIG_FILE})"

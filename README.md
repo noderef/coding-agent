@@ -125,7 +125,7 @@ Model switching:
 Path behavior:
 - `PROJECTS_DIR` = persistent repo clones (`owner/repo`).
 - `RUNTIME_DIR/worktrees` = temporary working directories where agent edits/commits happen.
-- Both must be outside this orchestration repository (enforced by workers/doctor).
+- Defaults are inside this orchestration repository (`./projects`, `./worktrees`) and are gitignored.
 
 ### `configs/repos.json`
 

@@ -28,14 +28,6 @@ load_env_file "${ROOT_DIR}/.env"
 : "${MAX_OPEN_AGENT_PRS:=0}"
 : "${UNASSIGN_ON_NOOP:=true}"
 
-if path_is_within "$PROJECTS_DIR" "$ROOT_DIR"; then
-  die "PROJECTS_DIR (${PROJECTS_DIR}) must be outside the orchestration repository (${ROOT_DIR})"
-fi
-
-if path_is_within "$RUNTIME_DIR" "$ROOT_DIR"; then
-  die "RUNTIME_DIR (${RUNTIME_DIR}) must be outside the orchestration repository (${ROOT_DIR})"
-fi
-
 LOCK_FILE="${STATE_DIR}/worker.lock"
 
 ensure_dir "$STATE_DIR"
