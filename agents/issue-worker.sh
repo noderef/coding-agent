@@ -334,6 +334,104 @@ PROMPT
   fi
 }
 
+build_issue_start_comment() {
+  local issue_number="$1"
+
+  local -a intros=(
+    "I picked this up and started implementation."
+    "I'm on this now and working through the implementation."
+    "Starting work on this issue now."
+  )
+
+  local intro_index=$(( issue_number % ${#intros[@]} ))
+  local intro="${intros[$intro_index]}"
+
+  cat <<EOF
+${intro}
+
+I'll post a follow-up here with either a draft PR or a clear blocker update.
+EOF
+}
+
+issue_test_status_for_comment() {
+  local test_status="$1"
+
+  case "$test_status" in
+    passed)
+      printf '%s\n' "Configured tests passed."
+      ;;
+    not-configured)
+      printf '%s\n' "No repository test command was configured."
+      ;;
+    *)
+      printf 'Test status: %s.\n' "$test_status"
+      ;;
+  esac
+}
+
+summarize_changed_files_for_comment() {
+  local changed_files="$1"
+  local limit="${2:-5}"
+
+  local file_count=0
+  local summary=""
+  local file
+
+  while IFS= read -r file; do
+    [[ -z "$file" ]] && continue
+    file_count=$((file_count + 1))
+    if (( file_count <= limit )); then
+      summary+="- \`${file}\`\n"
+    fi
+  done <<<"$changed_files"
+
+  if (( file_count > limit )); then
+    summary+="- ...and $((file_count - limit)) more file(s)\n"
+  fi
+
+  printf '%s\n' "$file_count"
+  printf '%b' "$summary"
+}
+
+build_issue_success_comment() {
+  local issue_number="$1"
+  local pr_url="$2"
+  local branch_name="$3"
+  local test_status="$4"
+  local changed_files="$5"
+  local created_new_pr="$6"
+
+  local -a openers=(
+    "Implementation is complete."
+    "Quick update: this one is implemented."
+    "Finished this pass."
+  )
+
+  local opener_index=$(( issue_number % ${#openers[@]} ))
+  local opener="${openers[$opener_index]}"
+  local pr_action="updated the existing draft PR"
+  if [[ "$created_new_pr" == "true" ]]; then
+    pr_action="opened a draft PR"
+  fi
+
+  local files_preview file_count test_note
+  files_preview="$(summarize_changed_files_for_comment "$changed_files" 5)"
+  file_count="$(head -n1 <<<"$files_preview")"
+  files_preview="$(tail -n +2 <<<"$files_preview")"
+  test_note="$(issue_test_status_for_comment "$test_status")"
+
+  cat <<EOF
+${opener}
+I ${pr_action} for **#${issue_number}**: ${pr_url}
+
+Summary:
+- Branch: \`${branch_name}\`
+- ${test_note}
+- Files touched (${file_count}):
+${files_preview}
+EOF
+}
+
 process_issue() {
   local issue_json="$1"
 
@@ -357,6 +455,7 @@ process_issue() {
   local instructions_file
   local forbidden_json
   local test_command
+  local start_comment
 
   local_repo_path="$(repo_get_local_path "$repo_slug")"
   issue_cleanup_activate "$repo_slug" "$issue_number" "$local_repo_path"
@@ -368,7 +467,8 @@ process_issue() {
   issue_cleanup_activate "$repo_slug" "$issue_number" "$local_repo_path" "$worktree_path"
 
   create_issue_worktree "$local_repo_path" "$worktree_path" "$branch_name" "$default_branch"
-  gh_issue_comment "$repo_slug" "$issue_number" "Starting autonomous implementation run for this issue. I will post an update with results shortly."
+  start_comment="$(build_issue_start_comment "$issue_number")"
+  gh_issue_comment "$repo_slug" "$issue_number" "$start_comment"
   gh_issue_add_label "$repo_slug" "$issue_number" "in-progress"
 
   instructions_file="$(repo_get_instructions_file "$repo_slug")"
@@ -497,7 +597,8 @@ EOF
 
   git -C "$worktree_path" push -u origin "$branch_name" >/dev/null
 
-  local existing_pr_json existing_pr_url pr_url pr_number
+  local existing_pr_json existing_pr_url pr_url pr_number created_new_pr
+  created_new_pr="false"
   existing_pr_json="$(gh_find_open_pr_by_head "$repo_slug" "$branch_name")"
   existing_pr_url="$(jq -r '.[0].url // ""' <<<"$existing_pr_json")"
 
@@ -520,13 +621,17 @@ PRBODY
 
     pr_url="$(gh_create_draft_pr "$repo_slug" "$branch_name" "$default_branch" "$pr_title" "$pr_body" | tail -n1)"
     pr_number="${pr_url##*/}"
+    created_new_pr="true"
   fi
 
   if [[ -n "$SYSTEM_PR_LABEL" ]]; then
     gh_pr_add_label "$repo_slug" "$pr_number" "$SYSTEM_PR_LABEL"
   fi
 
-  gh_issue_comment "$repo_slug" "$issue_number" "Draft PR created: ${pr_url}"
+  gh_issue_comment \
+    "$repo_slug" \
+    "$issue_number" \
+    "$(build_issue_success_comment "$issue_number" "$pr_url" "$branch_name" "$test_status" "$changed_files" "$created_new_pr")"
   gh_issue_remove_label "$repo_slug" "$issue_number" "in-progress"
   gh_issue_add_label "$repo_slug" "$issue_number" "pr-created"
   gh_issue_unassign "$repo_slug" "$issue_number" "$AGENT_GITHUB_USERNAME"

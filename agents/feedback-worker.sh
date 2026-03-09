@@ -367,6 +367,80 @@ PROMPT
   fi
 }
 
+feedback_test_status_for_comment() {
+  local test_status="$1"
+
+  case "$test_status" in
+    passed)
+      printf '%s\n' "Configured tests passed."
+      ;;
+    not-configured)
+      printf '%s\n' "No repository test command was configured."
+      ;;
+    *)
+      printf 'Test status: %s.\n' "$test_status"
+      ;;
+  esac
+}
+
+summarize_feedback_files_for_comment() {
+  local changed_files="$1"
+  local limit="${2:-5}"
+
+  local file_count=0
+  local summary=""
+  local file
+
+  while IFS= read -r file; do
+    [[ -z "$file" ]] && continue
+    file_count=$((file_count + 1))
+    if (( file_count <= limit )); then
+      summary+="- \`${file}\`\n"
+    fi
+  done <<<"$changed_files"
+
+  if (( file_count > limit )); then
+    summary+="- ...and $((file_count - limit)) more file(s)\n"
+  fi
+
+  printf '%s\n' "$file_count"
+  printf '%b' "$summary"
+}
+
+build_feedback_success_comment() {
+  local comment_id="$1"
+  local comment_author="$2"
+  local comment_url="$3"
+  local commit_sha="$4"
+  local test_status="$5"
+  local changed_files="$6"
+
+  local -a openers=(
+    "Implemented your feedback."
+    "Finished a focused follow-up for this comment."
+    "Applied the requested adjustment."
+  )
+
+  local opener_index=$(( comment_id % ${#openers[@]} ))
+  local opener="${openers[$opener_index]}"
+
+  local files_preview file_count test_note
+  files_preview="$(summarize_feedback_files_for_comment "$changed_files" 5)"
+  file_count="$(head -n1 <<<"$files_preview")"
+  files_preview="$(tail -n +2 <<<"$files_preview")"
+  test_note="$(feedback_test_status_for_comment "$test_status")"
+
+  cat <<EOF
+${opener}
+Addressed ${comment_url} from @${comment_author} in commit \`${commit_sha}\`.
+
+Summary:
+- ${test_note}
+- Files touched (${file_count}):
+${files_preview}
+EOF
+}
+
 process_feedback_comment() {
   local pr_json="$1"
   local feedback_json="$2"
@@ -557,7 +631,10 @@ EOF
   local commit_sha
   commit_sha="$(git -C "$worktree_path" rev-parse --short HEAD)"
 
-  gh_pr_comment "$repo_slug" "$pr_number" "Addressed feedback from @${comment_author} (${comment_url}) in commit ${commit_sha}."
+  gh_pr_comment \
+    "$repo_slug" \
+    "$pr_number" \
+    "$(build_feedback_success_comment "$comment_id" "$comment_author" "$comment_url" "$commit_sha" "$test_status" "$changed_files")"
   state_mark_processed "$key" "$repo_slug" "$pr_number" "$comment_type" "$comment_id" "$comment_author" "applied" "$comment_url" "commit ${commit_sha}"
 
   git -C "$local_repo_path" worktree remove --force "$worktree_path" >/dev/null 2>&1 || true
