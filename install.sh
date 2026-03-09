@@ -307,6 +307,10 @@ install_cron_entries() {
 main() {
   log "Installing coding-agent runtime dependencies"
 
+  if [[ "$(uname -s)" != "Linux" ]]; then
+    die "install.sh supports Linux only. Detected OS: $(uname -s)"
+  fi
+
   local pm
   pm="$(detect_pkg_manager)"
   log "Detected package manager: $pm"

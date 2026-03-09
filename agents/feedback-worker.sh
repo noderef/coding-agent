@@ -15,6 +15,8 @@ source "${ROOT_DIR}/lib/github.sh"
 source "${ROOT_DIR}/lib/agent-runner.sh"
 # shellcheck source=lib/state.sh
 source "${ROOT_DIR}/lib/state.sh"
+# shellcheck source=lib/worktree.sh
+source "${ROOT_DIR}/lib/worktree.sh"
 
 load_env_file "${ROOT_DIR}/.env"
 
@@ -57,6 +59,68 @@ fi
 
 SYSTEM_PR_LABEL="$(repo_system_pr_label)"
 FEEDBACK_TEST_LOG_FILE=""
+FEEDBACK_CLEANUP_ACTIVE=0
+FEEDBACK_CLEANUP_REPO_SLUG=""
+FEEDBACK_CLEANUP_PR_NUMBER=""
+FEEDBACK_CLEANUP_COMMENT_URL=""
+FEEDBACK_CLEANUP_LOCAL_REPO_PATH=""
+FEEDBACK_CLEANUP_WORKTREE_PATH=""
+FEEDBACK_CLEANUP_PROMPT_FILE=""
+
+feedback_cleanup_on_error() {
+  local exit_code="$?"
+
+  if [[ "$FEEDBACK_CLEANUP_ACTIVE" -ne 1 ]]; then
+    return "$exit_code"
+  fi
+
+  FEEDBACK_CLEANUP_ACTIVE=0
+
+  log_error "Feedback processing failed unexpectedly for ${FEEDBACK_CLEANUP_REPO_SLUG}#PR${FEEDBACK_CLEANUP_PR_NUMBER}"
+  if [[ -n "$FEEDBACK_CLEANUP_REPO_SLUG" ]] && [[ -n "$FEEDBACK_CLEANUP_PR_NUMBER" ]]; then
+    gh_pr_comment \
+      "$FEEDBACK_CLEANUP_REPO_SLUG" \
+      "$FEEDBACK_CLEANUP_PR_NUMBER" \
+      "Autonomous feedback processing failed unexpectedly${FEEDBACK_CLEANUP_COMMENT_URL:+ while handling ${FEEDBACK_CLEANUP_COMMENT_URL}}. Cleanup was applied and no additional changes were pushed. Logs are available to maintainers on the runtime host." \
+      || true
+  fi
+
+  if [[ -n "$FEEDBACK_CLEANUP_WORKTREE_PATH" ]] && [[ -n "$FEEDBACK_CLEANUP_LOCAL_REPO_PATH" ]]; then
+    git -C "$FEEDBACK_CLEANUP_LOCAL_REPO_PATH" worktree remove --force "$FEEDBACK_CLEANUP_WORKTREE_PATH" >/dev/null 2>&1 || true
+  fi
+  if [[ -n "$FEEDBACK_CLEANUP_PROMPT_FILE" ]]; then
+    rm -f "$FEEDBACK_CLEANUP_PROMPT_FILE" || true
+  fi
+
+  return "$exit_code"
+}
+
+feedback_cleanup_activate() {
+  local repo_slug="$1"
+  local pr_number="$2"
+  local local_repo_path="${3:-}"
+  local worktree_path="${4:-}"
+  local comment_url="${5:-}"
+
+  FEEDBACK_CLEANUP_REPO_SLUG="$repo_slug"
+  FEEDBACK_CLEANUP_PR_NUMBER="$pr_number"
+  FEEDBACK_CLEANUP_LOCAL_REPO_PATH="$local_repo_path"
+  FEEDBACK_CLEANUP_WORKTREE_PATH="$worktree_path"
+  FEEDBACK_CLEANUP_COMMENT_URL="$comment_url"
+  FEEDBACK_CLEANUP_ACTIVE=1
+}
+
+feedback_cleanup_deactivate() {
+  FEEDBACK_CLEANUP_ACTIVE=0
+  FEEDBACK_CLEANUP_REPO_SLUG=""
+  FEEDBACK_CLEANUP_PR_NUMBER=""
+  FEEDBACK_CLEANUP_COMMENT_URL=""
+  FEEDBACK_CLEANUP_LOCAL_REPO_PATH=""
+  FEEDBACK_CLEANUP_WORKTREE_PATH=""
+  FEEDBACK_CLEANUP_PROMPT_FILE=""
+}
+
+trap 'feedback_cleanup_on_error' ERR
 
 is_authorized_user() {
   local username="$1"
@@ -172,83 +236,6 @@ collect_pr_feedback_comments() {
       )
       | sort_by(.created_at)
     '
-}
-
-list_changed_files() {
-  local worktree="$1"
-  {
-    git -C "$worktree" diff --name-only
-    git -C "$worktree" diff --cached --name-only
-    git -C "$worktree" ls-files --others --exclude-standard
-  } | awk 'NF' | sort -u
-}
-
-file_matches_pattern() {
-  local file_path="$1"
-  local pattern="$2"
-
-  if [[ "$pattern" == *"*"* ]] || [[ "$pattern" == *"?"* ]] || [[ "$pattern" == *"["* ]]; then
-    [[ "$file_path" == $pattern ]]
-    return $?
-  fi
-
-  if [[ "$file_path" == "$pattern" ]] || [[ "$file_path" == "$pattern"/* ]]; then
-    return 0
-  fi
-
-  return 1
-}
-
-forbidden_touches() {
-  local changed_files="$1"
-  local forbidden_json="$2"
-
-  local -a global_forbidden=(
-    ".env"
-    ".env.*"
-    "**/.env"
-    "**/.env.*"
-    "secrets"
-    "secrets/*"
-    "**/secrets/*"
-  )
-
-  local -a repo_forbidden=()
-  while IFS= read -r p; do
-    [[ -n "$p" ]] && repo_forbidden+=("$p")
-  done < <(jq -r '.[]' <<<"$forbidden_json")
-
-  local file pattern
-  while IFS= read -r file; do
-    [[ -z "$file" ]] && continue
-
-    for pattern in "${global_forbidden[@]}"; do
-      if file_matches_pattern "$file" "$pattern"; then
-        printf '%s\n' "$file"
-        continue 2
-      fi
-    done
-
-    for pattern in "${repo_forbidden[@]}"; do
-      if file_matches_pattern "$file" "$pattern"; then
-        printf '%s\n' "$file"
-        continue 2
-      fi
-    done
-  done <<<"$changed_files"
-}
-
-prepare_repo_checkout() {
-  local repo_slug="$1"
-  local local_path="$2"
-
-  gh_clone_repo_if_missing "$repo_slug" "$local_path"
-
-  if [[ -n "$(git -C "$local_path" status --porcelain)" ]]; then
-    die "Local checkout has uncommitted changes: $local_path"
-  fi
-
-  git -C "$local_path" fetch --prune origin
 }
 
 create_pr_worktree() {
@@ -508,7 +495,9 @@ process_feedback_comment() {
   repo_key="$(repo_slug_to_fs_key "$repo_slug")"
   worktree_path="${RUNTIME_DIR}/worktrees/${repo_key}/pr-${pr_number}"
 
-  prepare_repo_checkout "$repo_slug" "$local_repo_path"
+  feedback_cleanup_activate "$repo_slug" "$pr_number" "$local_repo_path" "$worktree_path" "$comment_url"
+
+  prepare_repo_checkout_fetch "$repo_slug" "$local_repo_path"
   create_pr_worktree "$local_repo_path" "$worktree_path" "$head_branch"
 
   instructions_file="$(repo_get_instructions_file "$repo_slug")"
@@ -526,6 +515,7 @@ process_feedback_comment() {
   fi
 
   prompt_file="$(mktemp "${STATE_DIR}/feedback-prompt-${pr_number}-${comment_id}.XXXX.md")"
+  FEEDBACK_CLEANUP_PROMPT_FILE="$prompt_file"
   agent_log="${LOG_DIR}/agent-feedback-${repo_key}-${pr_number}-${comment_id}-$(date -u +%Y%m%dT%H%M%SZ).log"
 
   build_feedback_prompt_file \
@@ -548,6 +538,7 @@ process_feedback_comment() {
   set -e
 
   rm -f "$prompt_file"
+  FEEDBACK_CLEANUP_PROMPT_FILE=""
 
   if [[ "$agent_exit" -ne 0 ]]; then
     local fail_note="Autonomous feedback run failed."
@@ -566,9 +557,10 @@ Recent output:
 ${failure_excerpt:-No log output captured.}
 \`\`\`
 EOF
-)"
+    )"
     state_mark_processed "$key" "$repo_slug" "$pr_number" "$comment_type" "$comment_id" "$comment_author" "$status" "$comment_url" "$fail_note"
     git -C "$local_repo_path" worktree remove --force "$worktree_path" >/dev/null 2>&1 || true
+    feedback_cleanup_deactivate
     return 0
   fi
 
@@ -579,6 +571,7 @@ EOF
     gh_pr_comment "$repo_slug" "$pr_number" "I reviewed ${comment_url} and found no code changes were required."
     state_mark_processed "$key" "$repo_slug" "$pr_number" "$comment_type" "$comment_id" "$comment_author" "noop" "$comment_url" "no code changes needed"
     git -C "$local_repo_path" worktree remove --force "$worktree_path" >/dev/null 2>&1 || true
+    feedback_cleanup_deactivate
     return 0
   fi
 
@@ -595,6 +588,7 @@ EOF
     git -C "$worktree_path" reset --hard >/dev/null
     git -C "$worktree_path" clean -fd >/dev/null
     git -C "$local_repo_path" worktree remove --force "$worktree_path" >/dev/null 2>&1 || true
+    feedback_cleanup_deactivate
     return 0
   fi
 
@@ -611,9 +605,10 @@ Recent test output:
 ${test_excerpt:-No test output captured.}
 \`\`\`
 EOF
-)"
+    )"
     state_mark_processed "$key" "$repo_slug" "$pr_number" "$comment_type" "$comment_id" "$comment_author" "tests_failed" "$comment_url" "tests failed"
     git -C "$local_repo_path" worktree remove --force "$worktree_path" >/dev/null 2>&1 || true
+    feedback_cleanup_deactivate
     return 0
   fi
 
@@ -622,6 +617,7 @@ EOF
     gh_pr_comment "$repo_slug" "$pr_number" "I reviewed ${comment_url}; after validation there were no committable changes."
     state_mark_processed "$key" "$repo_slug" "$pr_number" "$comment_type" "$comment_id" "$comment_author" "noop" "$comment_url" "no staged changes"
     git -C "$local_repo_path" worktree remove --force "$worktree_path" >/dev/null 2>&1 || true
+    feedback_cleanup_deactivate
     return 0
   fi
 
@@ -638,6 +634,7 @@ EOF
   state_mark_processed "$key" "$repo_slug" "$pr_number" "$comment_type" "$comment_id" "$comment_author" "applied" "$comment_url" "commit ${commit_sha}"
 
   git -C "$local_repo_path" worktree remove --force "$worktree_path" >/dev/null 2>&1 || true
+  feedback_cleanup_deactivate
   return 0
 }
 

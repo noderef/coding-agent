@@ -15,6 +15,8 @@ source "${ROOT_DIR}/lib/branching.sh"
 source "${ROOT_DIR}/lib/github.sh"
 # shellcheck source=lib/agent-runner.sh
 source "${ROOT_DIR}/lib/agent-runner.sh"
+# shellcheck source=lib/worktree.sh
+source "${ROOT_DIR}/lib/worktree.sh"
 
 load_env_file "${ROOT_DIR}/.env"
 
@@ -61,6 +63,7 @@ ISSUE_CLEANUP_REPO_SLUG=""
 ISSUE_CLEANUP_ISSUE_NUMBER=""
 ISSUE_CLEANUP_LOCAL_REPO_PATH=""
 ISSUE_CLEANUP_WORKTREE_PATH=""
+ISSUE_CLEANUP_PROMPT_FILE=""
 ISSUE_TEST_LOG_FILE=""
 
 issue_cleanup_on_error() {
@@ -83,6 +86,9 @@ issue_cleanup_on_error() {
 
   if [[ -n "$ISSUE_CLEANUP_WORKTREE_PATH" ]] && [[ -n "$ISSUE_CLEANUP_LOCAL_REPO_PATH" ]]; then
     git -C "$ISSUE_CLEANUP_LOCAL_REPO_PATH" worktree remove --force "$ISSUE_CLEANUP_WORKTREE_PATH" >/dev/null 2>&1 || true
+  fi
+  if [[ -n "$ISSUE_CLEANUP_PROMPT_FILE" ]]; then
+    rm -f "$ISSUE_CLEANUP_PROMPT_FILE" || true
   fi
 
   return "$exit_code"
@@ -107,6 +113,7 @@ issue_cleanup_deactivate() {
   ISSUE_CLEANUP_ISSUE_NUMBER=""
   ISSUE_CLEANUP_LOCAL_REPO_PATH=""
   ISSUE_CLEANUP_WORKTREE_PATH=""
+  ISSUE_CLEANUP_PROMPT_FILE=""
 }
 
 trap 'issue_cleanup_on_error' ERR
@@ -149,92 +156,6 @@ count_open_agent_prs() {
   done < <(repo_list_enabled_slugs)
 
   printf '%s\n' "$total"
-}
-
-list_changed_files() {
-  local worktree="$1"
-  {
-    git -C "$worktree" diff --name-only
-    git -C "$worktree" diff --cached --name-only
-    git -C "$worktree" ls-files --others --exclude-standard
-  } | awk 'NF' | sort -u
-}
-
-file_matches_pattern() {
-  local file_path="$1"
-  local pattern="$2"
-
-  if [[ "$pattern" == *"*"* ]] || [[ "$pattern" == *"?"* ]] || [[ "$pattern" == *"["* ]]; then
-    [[ "$file_path" == $pattern ]]
-    return $?
-  fi
-
-  if [[ "$file_path" == "$pattern" ]] || [[ "$file_path" == "$pattern"/* ]]; then
-    return 0
-  fi
-
-  return 1
-}
-
-forbidden_touches() {
-  local changed_files="$1"
-  local forbidden_json="$2"
-
-  local -a global_forbidden=(
-    ".env"
-    ".env.*"
-    "**/.env"
-    "**/.env.*"
-    "secrets"
-    "secrets/*"
-    "**/secrets/*"
-  )
-
-  local -a repo_forbidden=()
-  if [[ -n "$forbidden_json" ]]; then
-    while IFS= read -r p; do
-      [[ -n "$p" ]] && repo_forbidden+=("$p")
-    done < <(jq -r '.[]' <<<"$forbidden_json")
-  fi
-
-  local file pattern
-  while IFS= read -r file; do
-    [[ -z "$file" ]] && continue
-
-    for pattern in "${global_forbidden[@]}"; do
-      if file_matches_pattern "$file" "$pattern"; then
-        printf '%s\n' "$file"
-        continue 2
-      fi
-    done
-
-    for pattern in "${repo_forbidden[@]}"; do
-      if file_matches_pattern "$file" "$pattern"; then
-        printf '%s\n' "$file"
-        continue 2
-      fi
-    done
-  done <<<"$changed_files"
-}
-
-prepare_repo_checkout() {
-  local repo_slug="$1"
-  local local_path="$2"
-
-  gh_clone_repo_if_missing "$repo_slug" "$local_path"
-
-  if [[ -n "$(git -C "$local_path" status --porcelain)" ]]; then
-    die "Local checkout has uncommitted changes: $local_path"
-  fi
-
-  git -C "$local_path" fetch --prune origin
-
-  local default_branch
-  default_branch="$(gh_repo_default_branch "$repo_slug")"
-  git -C "$local_path" checkout "$default_branch" >/dev/null 2>&1
-  git -C "$local_path" reset --hard "origin/${default_branch}" >/dev/null
-
-  printf '%s\n' "$default_branch"
 }
 
 create_issue_worktree() {
@@ -459,7 +380,7 @@ process_issue() {
 
   local_repo_path="$(repo_get_local_path "$repo_slug")"
   issue_cleanup_activate "$repo_slug" "$issue_number" "$local_repo_path"
-  default_branch="$(prepare_repo_checkout "$repo_slug" "$local_repo_path")"
+  default_branch="$(prepare_repo_checkout_sync_default "$repo_slug" "$local_repo_path")"
   branch_name="$(build_issue_branch_name "$issue_title" "$issue_number" "$labels_csv")"
   repo_key="$(repo_slug_to_fs_key "$repo_slug")"
   worktree_path="${RUNTIME_DIR}/worktrees/${repo_key}/issue-${issue_number}"
@@ -476,6 +397,7 @@ process_issue() {
   test_command="$(repo_get_test_command "$repo_slug")"
 
   prompt_file="$(mktemp "${STATE_DIR}/issue-prompt-${issue_number}.XXXX.md")"
+  ISSUE_CLEANUP_PROMPT_FILE="$prompt_file"
   agent_log="${LOG_DIR}/agent-issue-${repo_key}-${issue_number}-$(date -u +%Y%m%dT%H%M%SZ).log"
 
   build_issue_prompt_file \
@@ -496,6 +418,7 @@ process_issue() {
   set -e
 
   rm -f "$prompt_file"
+  ISSUE_CLEANUP_PROMPT_FILE=""
 
   if [[ "$agent_exit" -ne 0 ]]; then
     local fail_msg="Autonomous implementation failed."
@@ -619,8 +542,20 @@ Closes #${issue_number}
 PRBODY
 )
 
-    pr_url="$(gh_create_draft_pr "$repo_slug" "$branch_name" "$default_branch" "$pr_title" "$pr_body" | tail -n1)"
-    pr_number="${pr_url##*/}"
+    gh_create_draft_pr "$repo_slug" "$branch_name" "$default_branch" "$pr_title" "$pr_body" >/dev/null
+    local lookup_attempt
+    for lookup_attempt in 1 2 3 4 5; do
+      existing_pr_json="$(gh_find_open_pr_by_head "$repo_slug" "$branch_name")"
+      pr_url="$(jq -r '.[0].url // ""' <<<"$existing_pr_json")"
+      pr_number="$(jq -r '.[0].number // ""' <<<"$existing_pr_json")"
+      if [[ -n "$pr_url" ]] && [[ -n "$pr_number" ]]; then
+        break
+      fi
+      sleep 1
+    done
+    if [[ -z "$pr_url" ]] || [[ -z "$pr_number" ]]; then
+      die "Draft PR was created but could not be resolved for ${repo_slug}:${branch_name}"
+    fi
     created_new_pr="true"
   fi
 

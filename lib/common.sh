@@ -144,6 +144,7 @@ comma_list_contains() {
   local needle="$2"
   local lower_list
   local lower_needle
+  local -a _items
 
   lower_list="$(printf '%s' "$list_csv" | tr '[:upper:]' '[:lower:]')"
   lower_needle="$(printf '%s' "$needle" | tr '[:upper:]' '[:lower:]')"

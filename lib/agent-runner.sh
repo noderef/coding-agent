@@ -151,8 +151,15 @@ agent_run() {
   esac
 
   if [[ -n "${AGENT_EXTRA_ARGS:-}" ]]; then
-    # shellcheck disable=SC2206
-    local extra=( ${AGENT_EXTRA_ARGS} )
+    local -a extra=()
+    if [[ "${AGENT_EXTRA_ARGS}" == *$'\n'* ]]; then
+      while IFS= read -r arg; do
+        [[ -n "$arg" ]] && extra+=("$arg")
+      done <<<"${AGENT_EXTRA_ARGS}"
+    else
+      # shellcheck disable=SC2206
+      extra=( ${AGENT_EXTRA_ARGS} )
+    fi
     cmd+=("${extra[@]}")
   fi
 
@@ -166,18 +173,25 @@ agent_run() {
     env_prefix+=("OPENAI_API_KEY=${AGENT_API_KEY}")
   fi
 
+  local -a exec_cmd=()
+  if [[ "${#env_prefix[@]}" -gt 0 ]]; then
+    exec_cmd=(env "${env_prefix[@]}" "${cmd[@]}")
+  else
+    exec_cmd=("${cmd[@]}")
+  fi
+
   if [[ "$input_mode" == "stdin" ]]; then
     if command -v timeout >/dev/null 2>&1 && [[ "$timeout_minutes" -gt 0 ]]; then
       (
         cd "$workdir"
-        cat "$prompt_file" | timeout "${timeout_minutes}m" env "${env_prefix[@]}" "${cmd[@]}"
+        cat "$prompt_file" | timeout "${timeout_minutes}m" "${exec_cmd[@]}"
       ) >"$run_log_file" 2>&1
       return $?
     fi
 
     (
       cd "$workdir"
-      cat "$prompt_file" | env "${env_prefix[@]}" "${cmd[@]}"
+      cat "$prompt_file" | "${exec_cmd[@]}"
     ) >"$run_log_file" 2>&1
     return $?
   fi
@@ -185,13 +199,13 @@ agent_run() {
   if command -v timeout >/dev/null 2>&1 && [[ "$timeout_minutes" -gt 0 ]]; then
     (
       cd "$workdir"
-      timeout "${timeout_minutes}m" env "${env_prefix[@]}" "${cmd[@]}"
+      timeout "${timeout_minutes}m" "${exec_cmd[@]}"
     ) >"$run_log_file" 2>&1
     return $?
   fi
 
   (
     cd "$workdir"
-    env "${env_prefix[@]}" "${cmd[@]}"
+    "${exec_cmd[@]}"
   ) >"$run_log_file" 2>&1
 }

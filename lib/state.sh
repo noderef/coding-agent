@@ -51,7 +51,7 @@ state_mark_processed() {
   file="$(state_file_path)"
   tmp="$(mktemp "${file}.tmp.XXXX")"
 
-  jq \
+  if ! jq \
     --arg key "$key" \
     --arg repo_slug "$repo_slug" \
     --arg pr_number "$pr_number" \
@@ -73,7 +73,10 @@ state_mark_processed() {
       note: $note,
       processed_at: $processed_at
     }' \
-    "$file" >"$tmp"
+    "$file" >"$tmp"; then
+    rm -f "$tmp"
+    return 1
+  fi
 
   mv "$tmp" "$file"
 }
@@ -87,4 +90,3 @@ state_processed_today_count() {
     [.processed[] | select(.processed_at | startswith($today))] | length
   ' "$file"
 }
-
