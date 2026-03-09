@@ -1,0 +1,902 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>coding-agent log viewer</title>
+  <style>
+    :root {
+      --bg: #0a0a0a;
+      --sidebar: #111;
+      --panel: #1a1a1a;
+      --muted: #9a9a9a;
+      --text: #f4f4f4;
+      --line: #222;
+      --button-active-bg: #fff;
+      --button-active-text: #111;
+      --button-idle-text: #b8b8b8;
+      --danger: #cf3434;
+      --info: #4f8df7;
+      --warn: #f6a623;
+      --error: #f14e4e;
+      --shadow: rgba(0, 0, 0, 0.3);
+    }
+
+    body.light {
+      --bg: #f6f6f6;
+      --sidebar: #ffffff;
+      --panel: #ffffff;
+      --muted: #666;
+      --text: #131313;
+      --line: #e5e5e5;
+      --button-active-bg: #121212;
+      --button-active-text: #ffffff;
+      --button-idle-text: #3f3f3f;
+      --danger: #d43030;
+      --shadow: rgba(0, 0, 0, 0.08);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      min-height: 100vh;
+    }
+
+    .app {
+      display: flex;
+      min-height: 100vh;
+    }
+
+    .sidebar {
+      width: 160px;
+      flex: 0 0 160px;
+      background: var(--sidebar);
+      border-right: 1px solid var(--line);
+      padding: 12px;
+      position: fixed;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      overflow-y: auto;
+      z-index: 50;
+    }
+
+    .logo {
+      margin: 6px 0 14px;
+      font-weight: 800;
+      font-size: 16px;
+      line-height: 1.2;
+      letter-spacing: 0.2px;
+    }
+
+    .section-label {
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin: 14px 0 8px;
+    }
+
+    .filter-btn,
+    .file-btn {
+      width: 100%;
+      border: 1px solid transparent;
+      color: var(--button-idle-text);
+      background: transparent;
+      border-radius: 8px;
+      text-align: left;
+      font-size: 13px;
+      padding: 8px 10px;
+      margin-bottom: 6px;
+      cursor: pointer;
+      transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .filter-btn.active,
+    .file-btn.active {
+      background: var(--button-active-bg);
+      color: var(--button-active-text);
+      border-color: var(--button-active-bg);
+      font-weight: 700;
+    }
+
+    .main {
+      margin-left: 160px;
+      width: calc(100% - 160px);
+      padding: 16px;
+    }
+
+    .main-inner {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      box-shadow: 0 6px 18px var(--shadow);
+      overflow: hidden;
+      min-height: calc(100vh - 32px);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .header {
+      display: grid;
+      grid-template-columns: auto minmax(180px, 1fr) auto;
+      gap: 12px;
+      align-items: center;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .title {
+      font-size: 22px;
+      font-weight: 800;
+      margin: 0;
+    }
+
+    .search input {
+      width: 100%;
+      border: 1px solid var(--line);
+      background: transparent;
+      color: var(--text);
+      border-radius: 8px;
+      padding: 9px 10px;
+      outline: none;
+      font-size: 14px;
+    }
+
+    .controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+
+    .control-label {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .switch {
+      position: relative;
+      display: inline-flex;
+      width: 40px;
+      height: 22px;
+      align-items: center;
+    }
+
+    .switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+      position: absolute;
+    }
+
+    .slider {
+      width: 40px;
+      height: 22px;
+      border-radius: 100px;
+      background: #3d3d3d;
+      position: relative;
+      cursor: pointer;
+      transition: background 150ms ease;
+    }
+
+    .slider::after {
+      content: '';
+      position: absolute;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      left: 3px;
+      top: 3px;
+      background: #fff;
+      transition: transform 150ms ease;
+    }
+
+    .switch input:checked + .slider {
+      background: #1f7bff;
+    }
+
+    .switch input:checked + .slider::after {
+      transform: translateX(18px);
+    }
+
+    .icon-btn,
+    .clear-btn,
+    .pager-btn,
+    .modal-btn,
+    .menu-btn {
+      border: 1px solid var(--line);
+      background: transparent;
+      color: var(--text);
+      border-radius: 8px;
+      padding: 8px 10px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    .icon-btn {
+      width: 34px;
+      padding: 8px 0;
+      text-align: center;
+      font-size: 15px;
+    }
+
+    .clear-btn {
+      border-color: rgba(207, 52, 52, 0.4);
+      color: #fff;
+      background: var(--danger);
+      font-weight: 700;
+    }
+
+    .table-wrap {
+      width: 100%;
+      overflow-x: auto;
+      flex: 1 1 auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+    }
+
+    thead th {
+      text-align: left;
+      font-size: 11px;
+      color: var(--muted);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--line);
+      white-space: nowrap;
+    }
+
+    tbody td {
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--line);
+      vertical-align: top;
+      font-size: 13px;
+    }
+
+    .level-cell {
+      width: 110px;
+    }
+
+    .level-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      font-variant: small-caps;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      display: inline-block;
+      flex: 0 0 8px;
+    }
+
+    .dot.info { background: var(--info); }
+    .dot.warn { background: var(--warn); }
+    .dot.error { background: var(--error); }
+
+    .message-cell {
+      width: 56%;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      white-space: pre-wrap;
+      word-break: break-word;
+      line-height: 1.4;
+    }
+
+    .service-cell {
+      width: 130px;
+      color: var(--muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .timestamp-cell {
+      width: 185px;
+      text-align: right;
+      color: var(--muted);
+      white-space: nowrap;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    }
+
+    .empty {
+      text-align: center;
+      color: var(--muted);
+      padding: 32px 12px;
+      font-size: 14px;
+    }
+
+    .pagination {
+      padding: 12px 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-top: 1px solid var(--line);
+    }
+
+    .page-info {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .pager-actions {
+      display: inline-flex;
+      gap: 8px;
+    }
+
+    .pager-btn:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    .menu-btn {
+      display: none;
+      position: fixed;
+      top: 8px;
+      left: 8px;
+      z-index: 60;
+      background: var(--panel);
+    }
+
+    .overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.5);
+      z-index: 45;
+    }
+
+    .overlay.open {
+      display: block;
+    }
+
+    .modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.55);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 80;
+      padding: 20px;
+    }
+
+    .modal.show {
+      display: flex;
+    }
+
+    .modal-card {
+      width: 100%;
+      max-width: 420px;
+      background: var(--panel);
+      color: var(--text);
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      padding: 16px;
+    }
+
+    .modal-title {
+      margin: 0 0 8px;
+      font-size: 18px;
+      font-weight: 800;
+    }
+
+    .modal-copy {
+      margin: 0 0 12px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .modal-input {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: transparent;
+      color: var(--text);
+      font-size: 14px;
+      padding: 9px 10px;
+      outline: none;
+      margin-bottom: 10px;
+    }
+
+    .modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
+    .modal-btn.primary {
+      background: var(--button-active-bg);
+      color: var(--button-active-text);
+      border-color: var(--button-active-bg);
+      font-weight: 700;
+    }
+
+    @media (max-width: 960px) {
+      .service-cell,
+      th.service-col {
+        display: none;
+      }
+    }
+
+    @media (max-width: 820px) {
+      .menu-btn {
+        display: inline-block;
+      }
+
+      .sidebar {
+        transform: translateX(-100%);
+        transition: transform 170ms ease;
+      }
+
+      .sidebar.open {
+        transform: translateX(0);
+      }
+
+      .main {
+        margin-left: 0;
+        width: 100%;
+        padding: 8px;
+      }
+
+      .main-inner {
+        min-height: calc(100vh - 16px);
+      }
+
+      .header {
+        grid-template-columns: 1fr;
+        padding-top: 42px;
+      }
+
+      .controls {
+        justify-content: flex-start;
+        flex-wrap: wrap;
+      }
+
+      .timestamp-cell,
+      th.time-col {
+        width: 140px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <button id="menuToggle" class="menu-btn" aria-label="Toggle menu">☰</button>
+  <div id="overlay" class="overlay"></div>
+
+  <div class="app">
+    <aside id="sidebar" class="sidebar">
+      <div class="logo">⚡ coding-agent</div>
+
+      <div class="section-label">Levels</div>
+      <button class="filter-btn active" data-level="">All Levels</button>
+      <button class="filter-btn" data-level="info">⊙ Info</button>
+      <button class="filter-btn" data-level="warn">△ Warning</button>
+      <button class="filter-btn" data-level="error">⊗ Error</button>
+
+      <div class="section-label">Files</div>
+      <div id="fileFilters"></div>
+    </aside>
+
+    <main class="main">
+      <section class="main-inner">
+        <div class="header">
+          <h1 class="title">All Logs</h1>
+
+          <div class="search">
+            <input id="searchInput" type="search" placeholder="Search in logs..." />
+          </div>
+
+          <div class="controls">
+            <span class="control-label">Auto-Refresh</span>
+            <label class="switch" title="Auto-refresh every 5 seconds">
+              <input id="autoRefreshToggle" type="checkbox" />
+              <span class="slider"></span>
+            </label>
+            <button id="themeToggle" class="icon-btn" title="Toggle theme">☾</button>
+            <button id="clearFilters" class="clear-btn">Clear Filter</button>
+          </div>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th class="level-cell">Level</th>
+                <th>Message</th>
+                <th class="service-col">Service</th>
+                <th class="time-col" style="text-align:right;">Timestamp</th>
+              </tr>
+            </thead>
+            <tbody id="logTableBody"></tbody>
+          </table>
+        </div>
+
+        <div class="pagination">
+          <div id="pageInfo" class="page-info">Page 1 of 1</div>
+          <div class="pager-actions">
+            <button id="prevPage" class="pager-btn">Previous</button>
+            <button id="nextPage" class="pager-btn">Next</button>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="authModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="authTitle">
+    <div class="modal-card">
+      <h2 id="authTitle" class="modal-title">Authentication Required</h2>
+      <p class="modal-copy">Provide the configured token to read logs.</p>
+      <input id="authTokenInput" class="modal-input" type="password" placeholder="Bearer token" />
+      <div class="modal-actions">
+        <button id="authCancel" class="modal-btn">Cancel</button>
+        <button id="authSave" class="modal-btn primary">Save Token</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const state = {
+      level: '',
+      file: '',
+      search: '',
+      page: 1,
+      limit: 50,
+      totalPages: 1,
+      totalLogs: 0,
+      autoRefresh: false,
+      refreshTimer: null,
+      token: localStorage.getItem('logViewerToken') || '',
+      theme: localStorage.getItem('logViewerTheme') || 'dark',
+      files: [],
+      sidebarOpen: false,
+    };
+
+    const els = {
+      fileFilters: document.getElementById('fileFilters'),
+      searchInput: document.getElementById('searchInput'),
+      logTableBody: document.getElementById('logTableBody'),
+      pageInfo: document.getElementById('pageInfo'),
+      prevPage: document.getElementById('prevPage'),
+      nextPage: document.getElementById('nextPage'),
+      autoRefreshToggle: document.getElementById('autoRefreshToggle'),
+      clearFilters: document.getElementById('clearFilters'),
+      themeToggle: document.getElementById('themeToggle'),
+      authModal: document.getElementById('authModal'),
+      authTokenInput: document.getElementById('authTokenInput'),
+      authSave: document.getElementById('authSave'),
+      authCancel: document.getElementById('authCancel'),
+      sidebar: document.getElementById('sidebar'),
+      menuToggle: document.getElementById('menuToggle'),
+      overlay: document.getElementById('overlay'),
+    };
+
+    const levelButtons = Array.from(document.querySelectorAll('.filter-btn'));
+
+    function applyTheme() {
+      document.body.classList.toggle('light', state.theme === 'light');
+      els.themeToggle.textContent = state.theme === 'light' ? '☀' : '☾';
+      localStorage.setItem('logViewerTheme', state.theme);
+    }
+
+    function formatTimestamp(value) {
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return value;
+      const formatted = date.toLocaleString('en-US', {
+        year: 'numeric',
+        month: 'numeric',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: true,
+      });
+      return formatted.replace(/\s(am|pm)$/i, (_, ampm) => ` ${ampm.toUpperCase()}`);
+    }
+
+    function escapeHtml(text) {
+      return String(text)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    function levelClass(level) {
+      const l = String(level).toLowerCase();
+      if (l === 'warn') return 'warn';
+      if (l === 'error') return 'error';
+      return 'info';
+    }
+
+    function setSidebarOpen(open) {
+      state.sidebarOpen = open;
+      els.sidebar.classList.toggle('open', open);
+      els.overlay.classList.toggle('open', open);
+    }
+
+    function showAuthModal() {
+      els.authTokenInput.value = state.token;
+      els.authModal.classList.add('show');
+      setTimeout(() => els.authTokenInput.focus(), 10);
+    }
+
+    function hideAuthModal() {
+      els.authModal.classList.remove('show');
+    }
+
+    async function fetchJson(url) {
+      const headers = {};
+      if (state.token) {
+        headers.Authorization = `Bearer ${state.token}`;
+      }
+
+      const response = await fetch(url, { headers });
+      if (response.status === 401) {
+        showAuthModal();
+        throw new Error('Unauthorized');
+      }
+
+      if (!response.ok) {
+        const fallback = `${response.status} ${response.statusText}`;
+        let details = fallback;
+        try {
+          const payload = await response.json();
+          details = payload.error || fallback;
+        } catch (_error) {
+          details = fallback;
+        }
+        throw new Error(details);
+      }
+
+      return response.json();
+    }
+
+    function renderFileFilters() {
+      const allButton = `
+        <button class="file-btn ${state.file ? '' : 'active'}" data-file="">All Files</button>
+      `;
+
+      const rows = state.files.map((entry) => {
+        const file = typeof entry === 'string' ? entry : entry.file;
+        const active = state.file === file ? 'active' : '';
+        return `<button class="file-btn ${active}" data-file="${escapeHtml(file)}" title="${escapeHtml(file)}">${escapeHtml(file)}</button>`;
+      });
+
+      els.fileFilters.innerHTML = allButton + rows.join('');
+
+      Array.from(document.querySelectorAll('.file-btn')).forEach((button) => {
+        button.addEventListener('click', () => {
+          state.file = button.dataset.file || '';
+          state.page = 1;
+          renderFileFilters();
+          void loadLogs();
+          if (window.matchMedia('(max-width: 820px)').matches) {
+            setSidebarOpen(false);
+          }
+        });
+      });
+    }
+
+    function renderLevelFilters() {
+      levelButtons.forEach((button) => {
+        button.classList.toggle('active', (button.dataset.level || '') === state.level);
+      });
+    }
+
+    function renderLogs(logs) {
+      if (!logs.length) {
+        els.logTableBody.innerHTML = '<tr><td colspan="4" class="empty">No logs found.</td></tr>';
+        return;
+      }
+
+      const rows = logs.map((entry) => {
+        const lvl = escapeHtml(entry.level || 'INFO');
+        const dotClass = levelClass(entry.level);
+        const message = escapeHtml(entry.message || '');
+        const service = escapeHtml(entry.service || '-');
+        const time = escapeHtml(formatTimestamp(entry.timestamp));
+
+        return `
+          <tr>
+            <td class="level-cell">
+              <span class="level-badge"><span class="dot ${dotClass}"></span>${lvl}</span>
+            </td>
+            <td class="message-cell">${message}</td>
+            <td class="service-cell">${service}</td>
+            <td class="timestamp-cell">${time}</td>
+          </tr>
+        `;
+      });
+
+      els.logTableBody.innerHTML = rows.join('');
+    }
+
+    function renderPagination() {
+      els.pageInfo.textContent = `Page ${state.page} of ${state.totalPages}`;
+      els.prevPage.disabled = state.page <= 1;
+      els.nextPage.disabled = state.page >= state.totalPages;
+    }
+
+    async function loadFiles() {
+      try {
+        const payload = await fetchJson('/api/files');
+        state.files = Array.isArray(payload.files) ? payload.files : [];
+      } catch (error) {
+        if (error.message !== 'Unauthorized') {
+          state.files = [];
+        }
+      }
+
+      renderFileFilters();
+    }
+
+    async function loadLogs() {
+      const params = new URLSearchParams({
+        page: String(state.page),
+        limit: String(state.limit),
+      });
+      if (state.level) params.set('level', state.level);
+      if (state.file) params.set('file', state.file);
+      if (state.search) params.set('search', state.search);
+
+      try {
+        const payload = await fetchJson(`/api/logs?${params.toString()}`);
+        const logs = Array.isArray(payload.logs) ? payload.logs : [];
+
+        if (Array.isArray(payload.files)) {
+          state.files = payload.files;
+          renderFileFilters();
+        }
+
+        state.totalPages = Number(payload.totalPages) > 0 ? Number(payload.totalPages) : 1;
+        state.totalLogs = Number(payload.totalLogs) || 0;
+        state.page = Number(payload.currentPage) > 0 ? Number(payload.currentPage) : 1;
+
+        renderLogs(logs);
+        renderPagination();
+      } catch (error) {
+        if (error.message === 'Unauthorized') {
+          return;
+        }
+
+        els.logTableBody.innerHTML = `<tr><td colspan="4" class="empty">${escapeHtml(error.message)}</td></tr>`;
+        state.totalPages = 1;
+        state.page = 1;
+        renderPagination();
+      }
+    }
+
+    function setAutoRefresh(on) {
+      state.autoRefresh = on;
+      els.autoRefreshToggle.checked = on;
+
+      if (state.refreshTimer) {
+        clearInterval(state.refreshTimer);
+        state.refreshTimer = null;
+      }
+
+      if (on) {
+        state.refreshTimer = setInterval(() => {
+          void loadLogs();
+        }, 5000);
+      }
+    }
+
+    let searchTimer = null;
+
+    levelButtons.forEach((button) => {
+      button.addEventListener('click', () => {
+        state.level = button.dataset.level || '';
+        state.page = 1;
+        renderLevelFilters();
+        void loadLogs();
+        if (window.matchMedia('(max-width: 820px)').matches) {
+          setSidebarOpen(false);
+        }
+      });
+    });
+
+    els.searchInput.addEventListener('input', () => {
+      if (searchTimer) clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => {
+        state.search = els.searchInput.value.trim();
+        state.page = 1;
+        void loadLogs();
+      }, 300);
+    });
+
+    els.prevPage.addEventListener('click', () => {
+      if (state.page <= 1) return;
+      state.page -= 1;
+      void loadLogs();
+    });
+
+    els.nextPage.addEventListener('click', () => {
+      if (state.page >= state.totalPages) return;
+      state.page += 1;
+      void loadLogs();
+    });
+
+    els.autoRefreshToggle.addEventListener('change', () => {
+      setAutoRefresh(els.autoRefreshToggle.checked);
+    });
+
+    els.clearFilters.addEventListener('click', () => {
+      state.level = '';
+      state.file = '';
+      state.search = '';
+      state.page = 1;
+      els.searchInput.value = '';
+      renderLevelFilters();
+      renderFileFilters();
+      void loadLogs();
+    });
+
+    els.themeToggle.addEventListener('click', () => {
+      state.theme = state.theme === 'dark' ? 'light' : 'dark';
+      applyTheme();
+    });
+
+    els.authSave.addEventListener('click', async () => {
+      state.token = els.authTokenInput.value.trim();
+      if (state.token) {
+        localStorage.setItem('logViewerToken', state.token);
+      } else {
+        localStorage.removeItem('logViewerToken');
+      }
+
+      hideAuthModal();
+      await loadFiles();
+      await loadLogs();
+    });
+
+    els.authCancel.addEventListener('click', () => {
+      hideAuthModal();
+    });
+
+    els.menuToggle.addEventListener('click', () => {
+      setSidebarOpen(!state.sidebarOpen);
+    });
+
+    els.overlay.addEventListener('click', () => {
+      setSidebarOpen(false);
+    });
+
+    window.addEventListener('resize', () => {
+      if (!window.matchMedia('(max-width: 820px)').matches) {
+        setSidebarOpen(false);
+      }
+    });
+
+    (async function init() {
+      applyTheme();
+      renderLevelFilters();
+      renderFileFilters();
+      renderPagination();
+      await loadFiles();
+      await loadLogs();
+    })();
+  </script>
+</body>
+</html>

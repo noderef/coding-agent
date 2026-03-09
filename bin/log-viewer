@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+PID_FILE="${ROOT_DIR}/state/log-viewer.pid"
+
+if [[ -f "${ROOT_DIR}/.env" ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  source "${ROOT_DIR}/.env"
+  set +a
+fi
+
+: "${LOG_VIEWER_PORT:=3000}"
+: "${LOG_DIR:=./logs}"
+
+resolve_path() {
+  local value="$1"
+  case "$value" in
+    /*) printf '%s\n' "$value" ;;
+    *) printf '%s/%s\n' "$ROOT_DIR" "$value" ;;
+  esac
+}
+
+LOG_DIR_ABS="$(resolve_path "$LOG_DIR")"
+VIEWER_LOG_FILE="${LOG_DIR_ABS}/log-viewer.log"
+
+usage() {
+  printf 'Usage: ./bin/log-viewer [start|stop|status]\n'
+}
+
+is_running() {
+  local pid="$1"
+  kill -0 "$pid" >/dev/null 2>&1
+}
+
+start_viewer() {
+  if [[ -f "$PID_FILE" ]]; then
+    local existing_pid
+    existing_pid="$(cat "$PID_FILE")"
+    if [[ -n "$existing_pid" ]] && is_running "$existing_pid"; then
+      printf 'log-viewer already running (PID %s) at http://localhost:%s\n' "$existing_pid" "$LOG_VIEWER_PORT"
+      return 0
+    fi
+    rm -f "$PID_FILE"
+  fi
+
+  mkdir -p "${ROOT_DIR}/state" "$LOG_DIR_ABS"
+
+  (
+    cd "$ROOT_DIR"
+    nohup node log-viewer/server.js >>"$VIEWER_LOG_FILE" 2>&1 &
+    echo $! >"$PID_FILE"
+  )
+
+  local pid
+  pid="$(cat "$PID_FILE")"
+  printf 'log-viewer started (PID %s) at http://localhost:%s\n' "$pid" "$LOG_VIEWER_PORT"
+}
+
+stop_viewer() {
+  if [[ ! -f "$PID_FILE" ]]; then
+    printf 'log-viewer is not running\n'
+    return 0
+  fi
+
+  local pid
+  pid="$(cat "$PID_FILE")"
+
+  if [[ -n "$pid" ]] && is_running "$pid"; then
+    kill "$pid"
+    printf 'log-viewer stopped (PID %s)\n' "$pid"
+  else
+    printf 'log-viewer process not found; cleaning stale PID file\n'
+  fi
+
+  rm -f "$PID_FILE"
+}
+
+status_viewer() {
+  if [[ ! -f "$PID_FILE" ]]; then
+    printf 'log-viewer is not running\n'
+    return 0
+  fi
+
+  local pid
+  pid="$(cat "$PID_FILE")"
+
+  if [[ -n "$pid" ]] && is_running "$pid"; then
+    printf 'log-viewer is running (PID %s) at http://localhost:%s\n' "$pid" "$LOG_VIEWER_PORT"
+  else
+    printf 'log-viewer is not running (stale PID %s)\n' "$pid"
+    rm -f "$PID_FILE"
+  fi
+}
+
+case "${1:-}" in
+  start)
+    start_viewer
+    ;;
+  stop)
+    stop_viewer
+    ;;
+  status)
+    status_viewer
+    ;;
+  *)
+    usage
+    exit 1
+    ;;
+esac

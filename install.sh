@@ -326,6 +326,11 @@ main() {
   install_agent_cli
   install_cron_entries
 
+  if [[ -f "${ROOT_DIR}/log-viewer/package.json" ]]; then
+    log "Installing log-viewer dependencies"
+    (cd "${ROOT_DIR}/log-viewer" && npm install)
+  fi
+
   log "Base installation complete"
   log "Next steps:"
   log "1) Edit .env"

@@ -6,6 +6,7 @@ state/*.tmp
 projects/
 worktrees/
 .vscode/
+log-viewer/node_modules/
 
 # Keep .temp directory marker only
 .temp/*
