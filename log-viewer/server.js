@@ -47,6 +47,14 @@ const LOG_DIR = path.isAbsolute(LOG_DIR_VALUE)
   : path.resolve(PROJECT_ROOT, LOG_DIR_VALUE);
 
 const LOG_LINE_RE = /^(\d{4}-\d{2}-\d{2}T\S+)\s+\[(INFO|WARN|ERROR)\]\s?(.*)$/i;
+const STRUCTURED_DETECTION_LINES = 20;
+const MAX_STRUCTURED_LINES_PER_FILE = 2000;
+const MAX_UNSTRUCTURED_LINES_PER_FILE = 12000;
+const MAX_UNSTRUCTURED_BLOCKS_PER_FILE = 500;
+const UNSTRUCTURED_BLOCK_DELIMITER = 'API request started';
+
+const UNSTRUCTURED_ERROR_RE = /\b(?:error|fail(?:ed|ure)?|fatal)\b|✗/i;
+const UNSTRUCTURED_WARN_RE = /\bwarn(?:ing)?\b|⚠/i;
 
 function getServiceFromFilename(filename) {
   if (/^issue-worker-\d{4}-\d{2}-\d{2}\.log$/.test(filename)) return 'issue-worker';
@@ -95,8 +103,9 @@ async function readLinesReverse(filePath, onLine) {
     const stats = await handle.stat();
     let position = stats.size;
     let leftover = '';
+    let shouldStop = false;
 
-    while (position > 0) {
+    while (position > 0 && !shouldStop) {
       const readSize = Math.min(CHUNK_SIZE, position);
       position -= readSize;
 
@@ -108,11 +117,15 @@ async function readLinesReverse(filePath, onLine) {
       leftover = lines.shift() || '';
 
       for (let i = lines.length - 1; i >= 0; i -= 1) {
-        await onLine(lines[i].replace(/\r$/, ''));
+        const keepReading = await onLine(lines[i].replace(/\r$/, ''));
+        if (keepReading === false) {
+          shouldStop = true;
+          break;
+        }
       }
     }
 
-    if (leftover.length > 0) {
+    if (!shouldStop && leftover.length > 0) {
       await onLine(leftover.replace(/\r$/, ''));
     }
   } finally {
@@ -120,26 +133,285 @@ async function readLinesReverse(filePath, onLine) {
   }
 }
 
-async function parseLogFile(file, options) {
-  const filePath = path.join(LOG_DIR, file);
-  const service = getServiceFromFilename(file);
-  const entries = [];
+async function readFirstLines(filePath, maxLines) {
+  const CHUNK_SIZE = 8 * 1024;
+  const handle = await fs.promises.open(filePath, 'r');
 
+  try {
+    const stats = await handle.stat();
+    let position = 0;
+    let leftover = '';
+    const lines = [];
+
+    while (position < stats.size && lines.length < maxLines) {
+      const readSize = Math.min(CHUNK_SIZE, stats.size - position);
+      const buffer = Buffer.allocUnsafe(readSize);
+      await handle.read(buffer, 0, readSize, position);
+      position += readSize;
+
+      const data = leftover + buffer.toString('utf8');
+      const parts = data.split('\n');
+      leftover = parts.pop() || '';
+
+      for (const part of parts) {
+        lines.push(part.replace(/\r$/, ''));
+        if (lines.length >= maxLines) {
+          break;
+        }
+      }
+    }
+
+    if (lines.length < maxLines && leftover.length > 0) {
+      lines.push(leftover.replace(/\r$/, ''));
+    }
+
+    return lines;
+  } finally {
+    await handle.close();
+  }
+}
+
+async function readRecentLines(filePath, maxLines) {
+  const lines = [];
+
+  await readLinesReverse(filePath, async (line) => {
+    lines.unshift(line);
+    if (lines.length >= maxLines) {
+      return false;
+    }
+    return true;
+  });
+
+  return lines;
+}
+
+async function isStructuredLogFile(filePath) {
+  const firstLines = await readFirstLines(filePath, STRUCTURED_DETECTION_LINES);
+  return firstLines.some((line) => LOG_LINE_RE.test(line));
+}
+
+function inferLevelFromText(text) {
+  if (!text) {
+    return 'INFO';
+  }
+  if (UNSTRUCTURED_ERROR_RE.test(text)) {
+    return 'ERROR';
+  }
+  if (UNSTRUCTURED_WARN_RE.test(text)) {
+    return 'WARN';
+  }
+
+  return 'INFO';
+}
+
+function extractTimestampFromText(text) {
+  const timestampMatch = text.match(
+    /\b(\d{4}-\d{2}-\d{2}[T ][0-2]\d:[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|[+-][0-2]\d:?[0-5]\d)?)\b/
+  );
+
+  if (!timestampMatch) {
+    return '';
+  }
+
+  const normalized = timestampMatch[1].replace(' ', 'T');
+  const parsed = Date.parse(normalized);
+  if (Number.isNaN(parsed)) {
+    return '';
+  }
+  return new Date(parsed).toISOString();
+}
+
+function shouldIncludeEntry(level, message, levelFilter, searchFilter) {
+  if (levelFilter && level.toLowerCase() !== levelFilter) {
+    return false;
+  }
+  if (searchFilter && !message.toLowerCase().includes(searchFilter)) {
+    return false;
+  }
+  return true;
+}
+
+function createEntry({ level, message, service, file, timestamp, fallbackTs }) {
+  return {
+    level,
+    message,
+    service,
+    timestamp,
+    file,
+    _ts: Date.parse(timestamp) || fallbackTs,
+  };
+}
+
+function collectPathMatches(text, outputSet) {
+  for (const match of text.matchAll(/"path"\s*:\s*"([^"]+)"/gi)) {
+    if (match[1]) {
+      outputSet.add(match[1]);
+    }
+  }
+}
+
+function collectToolDataFromPayload(payload, toolNames, paths) {
+  if (!payload) {
+    return;
+  }
+
+  try {
+    const parsed = JSON.parse(payload);
+    if (parsed && typeof parsed === 'object') {
+      if (typeof parsed.tool === 'string' && parsed.tool) {
+        toolNames.add(parsed.tool);
+      }
+      if (typeof parsed.path === 'string' && parsed.path) {
+        paths.add(parsed.path);
+      }
+    }
+  } catch (_error) {
+    // Ignore malformed JSON payloads and fall back to regex extraction.
+  }
+
+  const toolMatch = payload.match(/"tool"\s*:\s*"([^"]+)"/i);
+  if (toolMatch && toolMatch[1]) {
+    toolNames.add(toolMatch[1]);
+  }
+  collectPathMatches(payload, paths);
+}
+
+function formatPreview(items, maxItems) {
+  if (items.length <= maxItems) {
+    return items.join(', ');
+  }
+  return `${items.slice(0, maxItems).join(', ')} (+${items.length - maxItems} more)`;
+}
+
+function buildUnstructuredMessage(blockLines) {
+  const toolNames = new Set();
+  const paths = new Set();
+  const progressItems = [];
+
+  for (const rawLine of blockLines) {
+    const line = rawLine.trim();
+    if (!line) {
+      continue;
+    }
+
+    if (/^tool:\s*/i.test(line)) {
+      const payload = line.replace(/^tool:\s*/i, '');
+      collectToolDataFromPayload(payload, toolNames, paths);
+    }
+
+    const taskProgressMatch = line.match(/^task_progress:\s*(.*)$/i);
+    if (taskProgressMatch) {
+      const progress = taskProgressMatch[1].trim();
+      if (progress) {
+        progressItems.push(progress);
+      }
+      continue;
+    }
+
+    if (/^-\s\[[ xX]\]/.test(line)) {
+      progressItems.push(line);
+    }
+
+    collectPathMatches(line, paths);
+  }
+
+  const summaries = [];
+  const toolList = [...toolNames];
+  const pathList = [...paths];
+
+  if (toolList.length > 0) {
+    summaries.push(`Tools: ${formatPreview(toolList, 3)}`);
+  }
+  if (progressItems.length > 0) {
+    summaries.push(`Task Progress: ${formatPreview(progressItems, 2)}`);
+  }
+  if (pathList.length > 0) {
+    summaries.push(`Paths: ${formatPreview(pathList, 3)}`);
+  }
+
+  const rawMessage = blockLines.join('\n').trim();
+  if (summaries.length === 0) {
+    return rawMessage;
+  }
+  return `${summaries.join('\n')}\n\n${rawMessage}`;
+}
+
+function splitParagraphBlocks(lines) {
+  const blocks = [];
+  let paragraph = [];
+
+  const flush = () => {
+    if (paragraph.some((line) => line.trim() !== '')) {
+      blocks.push(paragraph);
+    }
+    paragraph = [];
+  };
+
+  for (const line of lines) {
+    if (line.trim() === '') {
+      flush();
+      continue;
+    }
+    paragraph.push(line);
+  }
+
+  flush();
+  return blocks;
+}
+
+function splitUnstructuredBlocks(lines) {
+  const blocks = [];
+  const normalizedDelimiter = UNSTRUCTURED_BLOCK_DELIMITER.toLowerCase();
+  let current = [];
+  let hasDelimiter = false;
+
+  const flush = () => {
+    if (current.some((line) => line.trim() !== '')) {
+      blocks.push(current);
+    }
+    current = [];
+  };
+
+  for (const line of lines) {
+    const isDelimiter = line.trim().toLowerCase() === normalizedDelimiter;
+    if (isDelimiter) {
+      hasDelimiter = true;
+      flush();
+      current = [line];
+      continue;
+    }
+    current.push(line);
+  }
+
+  flush();
+
+  if (hasDelimiter) {
+    return blocks;
+  }
+
+  return splitParagraphBlocks(lines);
+}
+
+async function parseStructuredLogFile(filePath, file, service, options, fallbackTimestamp, fallbackTsMs) {
+  const entries = [];
   const levelFilter = options.level ? options.level.toLowerCase() : '';
   const searchFilter = options.search ? options.search.toLowerCase() : '';
 
   let continuation = [];
   let seenMatch = false;
+  let processedLines = 0;
 
   await readLinesReverse(filePath, async (line) => {
+    processedLines += 1;
+
     if (!line && continuation.length === 0 && !seenMatch) {
-      return;
+      return processedLines < MAX_STRUCTURED_LINES_PER_FILE;
     }
 
     const match = line.match(LOG_LINE_RE);
     if (!match) {
       continuation.unshift(line);
-      return;
+      return processedLines < MAX_STRUCTURED_LINES_PER_FILE;
     }
 
     seenMatch = true;
@@ -154,24 +426,93 @@ async function parseLogFile(file, options) {
 
     continuation = [];
 
-    if (levelFilter && level.toLowerCase() !== levelFilter) {
-      return;
-    }
-    if (searchFilter && !message.toLowerCase().includes(searchFilter)) {
-      return;
+    if (shouldIncludeEntry(level, message, levelFilter, searchFilter)) {
+      entries.push(
+        createEntry({
+          level,
+          message,
+          service,
+          file,
+          timestamp,
+          fallbackTs: fallbackTsMs,
+        })
+      );
     }
 
-    entries.push({
-      level,
-      message,
-      service,
-      timestamp,
-      file,
-      _ts: Date.parse(timestamp) || 0,
-    });
+    return processedLines < MAX_STRUCTURED_LINES_PER_FILE;
   });
 
+  if (continuation.some((line) => line.trim() !== '')) {
+    const message = continuation.join('\n');
+    const level = inferLevelFromText(message);
+    const timestamp = extractTimestampFromText(message) || fallbackTimestamp;
+
+    if (shouldIncludeEntry(level, message, levelFilter, searchFilter)) {
+      entries.push(
+        createEntry({
+          level,
+          message,
+          service,
+          file,
+          timestamp,
+          fallbackTs: fallbackTsMs,
+        })
+      );
+    }
+  }
+
   return entries;
+}
+
+async function parseUnstructuredLogFile(filePath, file, service, options, fallbackTimestamp, fallbackTsMs) {
+  const entries = [];
+  const levelFilter = options.level ? options.level.toLowerCase() : '';
+  const searchFilter = options.search ? options.search.toLowerCase() : '';
+  const lines = await readRecentLines(filePath, MAX_UNSTRUCTURED_LINES_PER_FILE);
+  const allBlocks = splitUnstructuredBlocks(lines);
+  const recentBlocks = allBlocks.slice(-MAX_UNSTRUCTURED_BLOCKS_PER_FILE);
+
+  for (let index = recentBlocks.length - 1; index >= 0; index -= 1) {
+    const block = recentBlocks[index];
+    const blockText = block.join('\n').trim();
+    if (!blockText) {
+      continue;
+    }
+
+    const message = buildUnstructuredMessage(block);
+    const level = inferLevelFromText(blockText);
+    const timestamp = extractTimestampFromText(blockText) || fallbackTimestamp;
+
+    if (shouldIncludeEntry(level, message, levelFilter, searchFilter)) {
+      entries.push(
+        createEntry({
+          level,
+          message,
+          service,
+          file,
+          timestamp,
+          fallbackTs: fallbackTsMs + index,
+        })
+      );
+    }
+  }
+
+  return entries;
+}
+
+async function parseLogFile(file, options) {
+  const filePath = path.join(LOG_DIR, file);
+  const service = getServiceFromFilename(file);
+  const stats = await fs.promises.stat(filePath);
+  const fallbackTimestamp = stats.mtime.toISOString();
+  const fallbackTsMs = stats.mtimeMs;
+  const structured = await isStructuredLogFile(filePath);
+
+  if (structured) {
+    return parseStructuredLogFile(filePath, file, service, options, fallbackTimestamp, fallbackTsMs);
+  }
+
+  return parseUnstructuredLogFile(filePath, file, service, options, fallbackTimestamp, fallbackTsMs);
 }
 
 function sanitizeFileParam(fileParam) {

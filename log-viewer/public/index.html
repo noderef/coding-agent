@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>coding-agent log viewer</title>
+  <title>Coding Agent – Log Viewer</title>
   <style>
     :root {
       --bg: #0a0a0a;
@@ -15,11 +15,16 @@
       --button-active-bg: #fff;
       --button-active-text: #111;
       --button-idle-text: #b8b8b8;
+      --button-hover-bg: rgba(255, 255, 255, 0.04);
+      --toggle-hover-bg: rgba(255, 255, 255, 0.06);
+      --resize-hover-bg: rgba(255, 255, 255, 0.08);
       --danger: #cf3434;
       --info: #4f8df7;
       --warn: #f6a623;
       --error: #f14e4e;
       --shadow: rgba(0, 0, 0, 0.3);
+      --sidebar-width: 160px;
+      --sidebar-collapsed-width: 44px;
     }
 
     body.light {
@@ -32,6 +37,9 @@
       --button-active-bg: #121212;
       --button-active-text: #ffffff;
       --button-idle-text: #3f3f3f;
+      --button-hover-bg: rgba(0, 0, 0, 0.03);
+      --toggle-hover-bg: rgba(0, 0, 0, 0.04);
+      --resize-hover-bg: rgba(0, 0, 0, 0.06);
       --danger: #d43030;
       --shadow: rgba(0, 0, 0, 0.08);
     }
@@ -54,25 +62,84 @@
     }
 
     .sidebar {
-      width: 160px;
-      flex: 0 0 160px;
+      width: var(--sidebar-width);
+      flex: 0 0 var(--sidebar-width);
       background: var(--sidebar);
       border-right: 1px solid var(--line);
-      padding: 12px;
+      padding: 12px 10px 12px 12px;
       position: fixed;
       left: 0;
       top: 0;
       bottom: 0;
-      overflow-y: auto;
+      overflow: hidden;
       z-index: 50;
+      transition: width 200ms cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .sidebar.collapsed {
+      width: var(--sidebar-collapsed-width);
+      padding: 12px 6px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .sidebar-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 10px;
+      margin-bottom: 6px;
+      border-bottom: 1px solid var(--line);
+      gap: 6px;
     }
 
     .logo {
-      margin: 6px 0 14px;
-      font-weight: 800;
-      font-size: 16px;
+      margin: 0;
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
       line-height: 1.2;
-      letter-spacing: 0.2px;
+      display: inline-flex;
+      align-items: center;
+      white-space: nowrap;
+      overflow: hidden;
+    }
+
+    .logo-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 14px;
+      min-width: 14px;
+    }
+
+    .logo-text {
+      margin-left: 2px;
+      transition: opacity 150ms ease;
+    }
+
+    .collapse-toggle {
+      width: 28px;
+      height: 28px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: transparent;
+      color: var(--button-idle-text);
+      cursor: pointer;
+      transition: transform 200ms ease, background 150ms ease, color 150ms ease;
+      flex: 0 0 28px;
+      padding: 0;
+      line-height: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+    }
+
+    .collapse-toggle:hover {
+      background: var(--toggle-hover-bg);
+      color: var(--text);
     }
 
     .section-label {
@@ -81,38 +148,192 @@
       text-transform: uppercase;
       letter-spacing: 0.08em;
       margin: 14px 0 8px;
+      padding-left: 10px;
+      transition: opacity 150ms ease;
     }
 
     .filter-btn,
     .file-btn {
       width: 100%;
       border: 1px solid transparent;
+      border-left: 2px solid transparent;
       color: var(--button-idle-text);
       background: transparent;
-      border-radius: 8px;
+      border-radius: 6px;
       text-align: left;
-      font-size: 13px;
-      padding: 8px 10px;
+      font-size: 12.5px;
+      padding: 7px 10px;
       margin-bottom: 6px;
       cursor: pointer;
-      transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+      transition: background 120ms ease, color 120ms ease, border-color 120ms ease, opacity 150ms ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 30px;
+      overflow: hidden;
+    }
+
+    .filter-btn:hover,
+    .file-btn:hover {
+      background: var(--button-hover-bg);
+    }
+
+    .filter-btn.active,
+    .file-btn.active {
+      border-left-color: var(--info);
+      background: var(--button-hover-bg);
+      color: var(--text);
+      font-weight: 700;
+    }
+
+    .btn-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 16px;
+      min-width: 16px;
+      height: 16px;
+      font-size: 14px;
+      line-height: 1;
+      flex-shrink: 0;
+      text-align: center;
+    }
+
+    .btn-text {
+      opacity: 1;
+      transition: opacity 150ms ease;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
     }
 
-    .filter-btn.active,
-    .file-btn.active {
-      background: var(--button-active-bg);
-      color: var(--button-active-text);
-      border-color: var(--button-active-bg);
+    .file-filters {
+      max-height: calc(100vh - 280px);
+      overflow-y: auto;
+      padding-right: 2px;
+    }
+
+    .file-filters::-webkit-scrollbar {
+      width: 4px;
+    }
+
+    .file-filters::-webkit-scrollbar-thumb {
+      background: var(--line);
+      border-radius: 999px;
+    }
+
+    .files-collapsed-badge {
+      display: none;
+      margin-top: 8px;
+      width: 100%;
+      border: 1px solid transparent;
+      border-left: 2px solid var(--info);
+      border-radius: 6px;
+      padding: 7px 0;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      color: var(--button-idle-text);
+      cursor: pointer;
+      background: var(--button-hover-bg);
+      font-size: 12px;
       font-weight: 700;
     }
 
+    .sidebar.collapsed .logo-text,
+    .sidebar.collapsed .btn-text {
+      opacity: 0;
+      width: 0;
+      margin: 0;
+      pointer-events: none;
+    }
+
+    .sidebar.collapsed .section-label {
+      display: none;
+    }
+
+    .sidebar.collapsed .sidebar-header {
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      width: 100%;
+      padding-bottom: 8px;
+      margin-bottom: 8px;
+    }
+
+    .sidebar.collapsed .logo {
+      width: 32px;
+      justify-content: center;
+    }
+
+    .sidebar.collapsed .logo-icon {
+      width: 16px;
+      min-width: 16px;
+    }
+
+    .sidebar.collapsed .filter-btn,
+    .sidebar.collapsed .files-collapsed-badge {
+      width: 32px;
+      height: 32px;
+      min-height: 32px;
+      padding: 0;
+      margin: 0 auto 4px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 8px;
+      border-left: none;
+      border: 1px solid transparent;
+      gap: 0;
+    }
+
+    .sidebar.collapsed .filter-btn {
+      margin-bottom: 4px;
+    }
+
+    .sidebar.collapsed .filter-btn.active {
+      background: var(--button-hover-bg);
+      border-color: var(--line);
+    }
+
+    .sidebar.collapsed .file-filters {
+      display: none;
+    }
+
+    .sidebar.collapsed .files-collapsed-badge {
+      display: inline-flex;
+      margin-top: 8px;
+      background: var(--button-hover-bg);
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .sidebar.collapsed .collapse-toggle {
+      transform: rotate(180deg);
+    }
+
+    .resize-handle {
+      position: absolute;
+      right: -2px;
+      top: 0;
+      bottom: 0;
+      width: 4px;
+      cursor: col-resize;
+      z-index: 55;
+      transition: background 120ms ease;
+    }
+
+    .resize-handle:hover,
+    .resize-handle.active {
+      background: var(--resize-hover-bg);
+    }
+
     .main {
-      margin-left: 160px;
-      width: calc(100% - 160px);
+      margin-left: var(--sidebar-width);
+      width: calc(100% - var(--sidebar-width));
       padding: 16px;
+      transition: margin-left 200ms cubic-bezier(0.4, 0, 0.2, 1), width 200ms cubic-bezier(0.4, 0, 0.2, 1);
     }
 
     .main-inner {
@@ -133,12 +354,6 @@
       align-items: center;
       padding: 12px 14px;
       border-bottom: 1px solid var(--line);
-    }
-
-    .title {
-      font-size: 22px;
-      font-weight: 800;
-      margin: 0;
     }
 
     .search input {
@@ -268,7 +483,7 @@
     }
 
     .level-cell {
-      width: 110px;
+      width: 96px;
     }
 
     .level-badge {
@@ -295,23 +510,28 @@
     .dot.error { background: var(--error); }
 
     .message-cell {
-      width: 56%;
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
       white-space: pre-wrap;
       word-break: break-word;
       line-height: 1.4;
     }
 
+    th.service-col {
+      width: 150px;
+    }
+
     .service-cell {
-      width: 130px;
       color: var(--muted);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
     }
 
-    .timestamp-cell {
+    th.time-col {
       width: 185px;
+    }
+
+    .timestamp-cell {
       text-align: right;
       color: var(--muted);
       white-space: nowrap;
@@ -444,6 +664,7 @@
       }
 
       .sidebar {
+        width: min(260px, 80vw);
         transform: translateX(-100%);
         transition: transform 170ms ease;
       }
@@ -452,10 +673,17 @@
         transform: translateX(0);
       }
 
+      .resize-handle,
+      .collapse-toggle,
+      .files-collapsed-badge {
+        display: none !important;
+      }
+
       .main {
         margin-left: 0;
         width: 100%;
         padding: 8px;
+        transition: none;
       }
 
       .main-inner {
@@ -485,16 +713,38 @@
 
   <div class="app">
     <aside id="sidebar" class="sidebar">
-      <div class="logo">⚡ coding-agent</div>
+      <div class="sidebar-header">
+        <div class="logo">
+          <span class="logo-icon">⚡</span>
+          <span class="logo-text"> Coding Agent</span>
+        </div>
+        <button class="collapse-toggle" id="collapseToggle" aria-label="Collapse sidebar">«</button>
+      </div>
 
       <div class="section-label">Levels</div>
-      <button class="filter-btn active" data-level="">All Levels</button>
-      <button class="filter-btn" data-level="info">⊙ Info</button>
-      <button class="filter-btn" data-level="warn">△ Warning</button>
-      <button class="filter-btn" data-level="error">⊗ Error</button>
+      <button class="filter-btn active" data-level="">
+        <span class="btn-icon">A</span>
+        <span class="btn-text">All Levels</span>
+      </button>
+      <button class="filter-btn" data-level="info">
+        <span class="btn-icon">I</span>
+        <span class="btn-text">Info</span>
+      </button>
+      <button class="filter-btn" data-level="warn">
+        <span class="btn-icon">W</span>
+        <span class="btn-text">Warning</span>
+      </button>
+      <button class="filter-btn" data-level="error">
+        <span class="btn-icon">E</span>
+        <span class="btn-text">Error</span>
+      </button>
 
       <div class="section-label">Files</div>
-      <div id="fileFilters"></div>
+      <div class="files-collapsed-badge" id="filesCollapsedBadge" title="Files">
+        <span id="filesCollapsedCount">0</span>
+      </div>
+      <div id="fileFilters" class="file-filters"></div>
+      <div class="resize-handle" id="resizeHandle"></div>
     </aside>
 
     <main class="main">
@@ -520,7 +770,7 @@
             <thead>
               <tr>
                 <th class="level-cell">Level</th>
-                <th>Message</th>
+                <th class="message-col">Message</th>
                 <th class="service-col">Service</th>
                 <th class="time-col" style="text-align:right;">Timestamp</th>
               </tr>
@@ -553,6 +803,16 @@
   </div>
 
   <script>
+    const SIDEBAR_COLLAPSED_WIDTH = 44;
+    const SIDEBAR_MIN_EXPANDED_WIDTH = 60;
+    const SIDEBAR_DEFAULT_WIDTH = 160;
+    const SIDEBAR_MAX_WIDTH = 320;
+
+    function storedNumber(key, fallback) {
+      const raw = Number(localStorage.getItem(key));
+      return Number.isFinite(raw) ? raw : fallback;
+    }
+
     const state = {
       level: '',
       file: '',
@@ -561,16 +821,20 @@
       limit: 50,
       totalPages: 1,
       totalLogs: 0,
-      autoRefresh: false,
+      autoRefresh: true,
       refreshTimer: null,
       token: localStorage.getItem('logViewerToken') || '',
       theme: localStorage.getItem('logViewerTheme') || 'dark',
       files: [],
       sidebarOpen: false,
+      sidebarCollapsed: localStorage.getItem('sidebarCollapsed') === '1',
+      sidebarWidth: storedNumber('sidebarWidth', SIDEBAR_DEFAULT_WIDTH),
     };
 
     const els = {
       fileFilters: document.getElementById('fileFilters'),
+      filesCollapsedBadge: document.getElementById('filesCollapsedBadge'),
+      filesCollapsedCount: document.getElementById('filesCollapsedCount'),
       searchInput: document.getElementById('searchInput'),
       logTableBody: document.getElementById('logTableBody'),
       pageInfo: document.getElementById('pageInfo'),
@@ -584,11 +848,41 @@
       authSave: document.getElementById('authSave'),
       authCancel: document.getElementById('authCancel'),
       sidebar: document.getElementById('sidebar'),
+      collapseToggle: document.getElementById('collapseToggle'),
+      resizeHandle: document.getElementById('resizeHandle'),
       menuToggle: document.getElementById('menuToggle'),
       overlay: document.getElementById('overlay'),
     };
 
     const levelButtons = Array.from(document.querySelectorAll('.filter-btn'));
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    function isMobileViewport() {
+      return window.matchMedia('(max-width: 820px)').matches;
+    }
+
+    function saveSidebarPrefs() {
+      localStorage.setItem('sidebarCollapsed', state.sidebarCollapsed ? '1' : '0');
+      localStorage.setItem('sidebarWidth', String(state.sidebarWidth));
+    }
+
+    function updateSidebarLayout() {
+      const collapsed = !isMobileViewport() && state.sidebarCollapsed;
+      const width = collapsed
+        ? SIDEBAR_COLLAPSED_WIDTH
+        : clamp(state.sidebarWidth, SIDEBAR_MIN_EXPANDED_WIDTH, SIDEBAR_MAX_WIDTH);
+
+      document.documentElement.style.setProperty('--sidebar-width', `${width}px`);
+      els.sidebar.classList.toggle('collapsed', collapsed);
+
+      if (els.collapseToggle) {
+        els.collapseToggle.textContent = collapsed ? '»' : '«';
+        els.collapseToggle.setAttribute('aria-label', collapsed ? 'Expand sidebar' : 'Collapse sidebar');
+      }
+    }
 
     function applyTheme() {
       document.body.classList.toggle('light', state.theme === 'light');
@@ -671,14 +965,25 @@
     }
 
     function renderFileFilters() {
+      const filesCount = state.files.length;
+      els.filesCollapsedCount.textContent = String(filesCount);
+
       const allButton = `
-        <button class="file-btn ${state.file ? '' : 'active'}" data-file="">All Files</button>
+        <button class="file-btn ${state.file ? '' : 'active'}" data-file="">
+          <span class="btn-icon">📁</span>
+          <span class="btn-text file-text">All Files</span>
+        </button>
       `;
 
       const rows = state.files.map((entry) => {
         const file = typeof entry === 'string' ? entry : entry.file;
         const active = state.file === file ? 'active' : '';
-        return `<button class="file-btn ${active}" data-file="${escapeHtml(file)}" title="${escapeHtml(file)}">${escapeHtml(file)}</button>`;
+        return `
+          <button class="file-btn ${active}" data-file="${escapeHtml(file)}" title="${escapeHtml(file)}">
+            <span class="btn-icon">📄</span>
+            <span class="btn-text file-text">${escapeHtml(file)}</span>
+          </button>
+        `;
       });
 
       els.fileFilters.innerHTML = allButton + rows.join('');
@@ -689,7 +994,7 @@
           state.page = 1;
           renderFileFilters();
           void loadLogs();
-          if (window.matchMedia('(max-width: 820px)').matches) {
+          if (isMobileViewport()) {
             setSidebarOpen(false);
           }
         });
@@ -801,6 +1106,71 @@
       }
     }
 
+    function pointerClientX(event) {
+      if (event.touches && event.touches.length > 0) {
+        return event.touches[0].clientX;
+      }
+      return event.clientX;
+    }
+
+    let isResizing = false;
+    let resizeStartX = 0;
+    let resizeStartWidth = SIDEBAR_DEFAULT_WIDTH;
+
+    function beginSidebarResize(event) {
+      if (isMobileViewport()) {
+        return;
+      }
+
+      isResizing = true;
+      resizeStartX = pointerClientX(event);
+      resizeStartWidth = state.sidebarCollapsed
+        ? SIDEBAR_COLLAPSED_WIDTH
+        : clamp(state.sidebarWidth, SIDEBAR_MIN_EXPANDED_WIDTH, SIDEBAR_MAX_WIDTH);
+
+      els.resizeHandle.classList.add('active');
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+      event.preventDefault();
+    }
+
+    function onSidebarResize(event) {
+      if (!isResizing) {
+        return;
+      }
+
+      const delta = pointerClientX(event) - resizeStartX;
+      const nextWidth = clamp(resizeStartWidth + delta, SIDEBAR_COLLAPSED_WIDTH, SIDEBAR_MAX_WIDTH);
+
+      if (nextWidth < SIDEBAR_MIN_EXPANDED_WIDTH) {
+        state.sidebarCollapsed = true;
+      } else {
+        state.sidebarCollapsed = false;
+        state.sidebarWidth = nextWidth;
+      }
+
+      updateSidebarLayout();
+      event.preventDefault();
+    }
+
+    function endSidebarResize() {
+      if (!isResizing) {
+        return;
+      }
+
+      isResizing = false;
+      els.resizeHandle.classList.remove('active');
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+
+      if (!state.sidebarCollapsed) {
+        state.sidebarWidth = clamp(state.sidebarWidth, SIDEBAR_MIN_EXPANDED_WIDTH, SIDEBAR_MAX_WIDTH);
+      }
+
+      saveSidebarPrefs();
+      updateSidebarLayout();
+    }
+
     let searchTimer = null;
 
     levelButtons.forEach((button) => {
@@ -809,7 +1179,7 @@
         state.page = 1;
         renderLevelFilters();
         void loadLogs();
-        if (window.matchMedia('(max-width: 820px)').matches) {
+        if (isMobileViewport()) {
           setSidebarOpen(false);
         }
       });
@@ -881,17 +1251,55 @@
       setSidebarOpen(false);
     });
 
+    els.collapseToggle.addEventListener('click', () => {
+      if (isMobileViewport()) {
+        return;
+      }
+
+      state.sidebarCollapsed = !state.sidebarCollapsed;
+      if (!state.sidebarCollapsed && state.sidebarWidth < SIDEBAR_MIN_EXPANDED_WIDTH) {
+        state.sidebarWidth = SIDEBAR_DEFAULT_WIDTH;
+      }
+      saveSidebarPrefs();
+      updateSidebarLayout();
+    });
+
+    els.filesCollapsedBadge.addEventListener('click', () => {
+      if (isMobileViewport()) {
+        return;
+      }
+
+      if (state.sidebarCollapsed) {
+        state.sidebarCollapsed = false;
+        if (state.sidebarWidth < SIDEBAR_MIN_EXPANDED_WIDTH) {
+          state.sidebarWidth = SIDEBAR_DEFAULT_WIDTH;
+        }
+        saveSidebarPrefs();
+        updateSidebarLayout();
+      }
+    });
+
+    els.resizeHandle.addEventListener('mousedown', beginSidebarResize);
+    els.resizeHandle.addEventListener('touchstart', beginSidebarResize, { passive: false });
+    document.addEventListener('mousemove', onSidebarResize);
+    document.addEventListener('touchmove', onSidebarResize, { passive: false });
+    document.addEventListener('mouseup', endSidebarResize);
+    document.addEventListener('touchend', endSidebarResize);
+
     window.addEventListener('resize', () => {
-      if (!window.matchMedia('(max-width: 820px)').matches) {
+      if (!isMobileViewport()) {
         setSidebarOpen(false);
       }
+      updateSidebarLayout();
     });
 
     (async function init() {
       applyTheme();
+      updateSidebarLayout();
       renderLevelFilters();
       renderFileFilters();
       renderPagination();
+      setAutoRefresh(true);
       await loadFiles();
       await loadLogs();
     })();

@@ -1,6 +1,7 @@
 .env
 logs/*.log
 state/processed-feedback.json
+state/log-viewer.pid
 state/*.tmp
 .DS_Store
 projects/

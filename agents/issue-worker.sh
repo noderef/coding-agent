@@ -343,7 +343,7 @@ build_issue_success_comment() {
 
   cat <<EOF
 ${opener}
-I ${pr_action} for **#${issue_number}**: ${pr_url}
+I ${pr_action} for this issue: ${pr_url}
 
 Summary:
 - Branch: \`${branch_name}\`
