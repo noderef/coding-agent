@@ -173,7 +173,7 @@ collect_open_candidate_prs() {
 
     local result
     if ! result="$(gh_list_open_prs "$repo_slug" 100 2>/dev/null)"; then
-      log_warn "Skipping PR list for repo due to failure: $repo_slug"
+      log_warn "Skipping PR list for repo due to failure: $repo_slug" >&2
       continue
     fi
 

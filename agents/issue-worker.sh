@@ -129,7 +129,7 @@ collect_candidate_issues() {
 
     local result
     if ! result="$(gh_list_assigned_open_issues "$repo_slug" "$AGENT_GITHUB_USERNAME" 100 2>/dev/null)"; then
-      log_warn "Skipping repo due to issue list failure: $repo_slug"
+      log_warn "Skipping repo due to issue list failure: $repo_slug" >&2
       continue
     fi
 
