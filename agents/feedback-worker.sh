@@ -428,6 +428,48 @@ ${files_preview}
 EOF
 }
 
+feedback_commit_prefix_for_branch() {
+  local branch_name="$1"
+  local lower
+  lower="$(printf '%s' "$branch_name" | tr '[:upper:]' '[:lower:]')"
+
+  if [[ "$lower" == fix/* ]] || [[ "$lower" == bug/* ]]; then
+    printf '%s\n' ":bug:"
+    return 0
+  fi
+
+  if [[ "$lower" == feature/* ]] || [[ "$lower" == feat/* ]] || [[ "$lower" == enhancement/* ]]; then
+    printf '%s\n' ":sparkles:"
+    return 0
+  fi
+
+  printf '%s\n' "agent:"
+}
+
+normalize_commit_sentence() {
+  local value="$1"
+  value="$(printf '%s' "$value" | tr '\r\n' '  ' | sed -E 's/[[:space:]]+/ /g; s/^ +//; s/ +$//')"
+  printf '%s\n' "$value"
+}
+
+build_feedback_commit_message() {
+  local head_branch="$1"
+  local pr_title="$2"
+
+  local prefix
+  local summary
+  prefix="$(feedback_commit_prefix_for_branch "$head_branch")"
+  summary="$(normalize_commit_sentence "$pr_title")"
+
+  if [[ -z "$summary" ]]; then
+    summary="Apply requested PR follow-up."
+  elif [[ ! "$summary" =~ [.!?]$ ]]; then
+    summary="${summary}."
+  fi
+
+  printf '%s %s\n' "$prefix" "$summary"
+}
+
 process_feedback_comment() {
   local pr_json="$1"
   local feedback_json="$2"
@@ -621,7 +663,9 @@ EOF
     return 0
   fi
 
-  git -C "$worktree_path" commit -m "agent: address feedback ${comment_type} ${comment_id}" >/dev/null
+  local commit_message
+  commit_message="$(build_feedback_commit_message "$head_branch" "$pr_title")"
+  git -C "$worktree_path" commit -m "$commit_message" >/dev/null
   git -C "$worktree_path" push origin "$head_branch" >/dev/null
 
   local commit_sha

@@ -353,6 +353,49 @@ ${files_preview}
 EOF
 }
 
+issue_commit_prefix_for_labels() {
+  local labels_csv="$1"
+  local lower
+  lower="$(printf '%s' "$labels_csv" | tr '[:upper:]' '[:lower:]')"
+
+  if [[ ",$lower," == *",bug,"* ]]; then
+    printf '%s\n' ":bug:"
+    return 0
+  fi
+
+  if [[ ",$lower," == *",enhancement,"* ]] || [[ ",$lower," == *",feature,"* ]]; then
+    printf '%s\n' ":sparkles:"
+    return 0
+  fi
+
+  printf '%s\n' "agent:"
+}
+
+normalize_commit_sentence() {
+  local value="$1"
+  value="$(printf '%s' "$value" | tr '\r\n' '  ' | sed -E 's/[[:space:]]+/ /g; s/^ +//; s/ +$//')"
+  printf '%s\n' "$value"
+}
+
+build_issue_commit_message() {
+  local labels_csv="$1"
+  local issue_title="$2"
+  local issue_number="$3"
+
+  local prefix
+  local summary
+  prefix="$(issue_commit_prefix_for_labels "$labels_csv")"
+  summary="$(normalize_commit_sentence "$issue_title")"
+
+  if [[ -z "$summary" ]]; then
+    summary="Address issue #${issue_number}."
+  elif [[ ! "$summary" =~ [.!?]$ ]]; then
+    summary="${summary}."
+  fi
+
+  printf '%s %s\n' "$prefix" "$summary"
+}
+
 process_issue() {
   local issue_json="$1"
 
@@ -507,7 +550,9 @@ EOF
     return 0
   fi
 
-  git -C "$worktree_path" commit -m "agent: address issue #${issue_number}" >/dev/null
+  local commit_message
+  commit_message="$(build_issue_commit_message "$labels_csv" "$issue_title" "$issue_number")"
+  git -C "$worktree_path" commit -m "$commit_message" >/dev/null
 
   if [[ "$branch_name" == "$default_branch" ]]; then
     gh_issue_comment "$repo_slug" "$issue_number" "Safety check failed: computed branch equals default branch. Aborting push."
