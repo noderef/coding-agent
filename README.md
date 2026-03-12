@@ -19,7 +19,7 @@
 
 - Polls assigned GitHub issues in configured repos.
 - Creates per-issue branch/worktree and runs an autonomous coding agent.
-- Validates safety constraints and optional tests.
+- Validates safety constraints and optional install/test commands.
 - Commits, pushes, and opens draft PRs.
 - Handles PR feedback via `@bot` mentions.
 - Tracks processed feedback comments in JSON state.
@@ -85,7 +85,7 @@ INSTALL_CRON=false ./install.sh
 4. Creates branch/worktree.
 5. Runs agent prompt.
 6. Blocks forbidden file changes.
-7. Runs configured test command (if set).
+7. Runs configured install/test commands (if set).
 8. On success: commit, push, create draft PR, comment issue, update labels, unassign bot.
 9. On no-op/failure/timeout: comment issue and exit safely.
 
@@ -98,7 +98,7 @@ INSTALL_CRON=false ./install.sh
    - are by allowed users
    - are not already processed
 4. Runs targeted patch on PR head branch worktree.
-5. Validates forbidden files + tests.
+5. Validates forbidden files + install/test commands.
 6. Pushes follow-up commit and comments on PR.
 7. Marks comment processed in state JSON (even on no-op/failure).
 
@@ -135,6 +135,7 @@ Per repo:
 - `enabled`
 - `local_path`
 - `instructions_file` (optional)
+- `install_command` (optional)
 - `test_command` (optional)
 - `forbidden_paths` (optional)
 
@@ -200,7 +201,7 @@ mv /tmp/processed.json state/processed-feedback.json
 - Clone/fetch/worktree conflict: task fails safely and logs details.
 - No code changes: worker posts no-op comment.
 - Forbidden files touched: patch blocked.
-- Timeout/tests failed: no push, status comment posted.
+- Timeout/validation failed: no push, status comment posted.
 
 ## License
 

@@ -64,7 +64,7 @@ ISSUE_CLEANUP_ISSUE_NUMBER=""
 ISSUE_CLEANUP_LOCAL_REPO_PATH=""
 ISSUE_CLEANUP_WORKTREE_PATH=""
 ISSUE_CLEANUP_PROMPT_FILE=""
-ISSUE_TEST_LOG_FILE=""
+ISSUE_VALIDATION_LOG_FILE=""
 
 issue_cleanup_on_error() {
   local exit_code="$?"
@@ -186,35 +186,58 @@ create_issue_worktree() {
   git -C "$local_path" worktree add -b "$branch_name" "$worktree_path" "origin/${default_branch}" >/dev/null
 }
 
-run_test_command_if_configured() {
+run_validation_commands_if_configured() {
   local repo_slug="$1"
   local worktree_path="$2"
+  local install_cmd
   local test_cmd
   local repo_key
-  local test_log
+  local validation_log
+  install_cmd="$(repo_get_install_command "$repo_slug")"
   test_cmd="$(repo_get_test_command "$repo_slug")"
 
-  if [[ -z "$test_cmd" ]]; then
-    ISSUE_TEST_LOG_FILE=""
-    log_info "No test command configured for ${repo_slug}; skipping tests" >&2
+  if [[ -z "$install_cmd" ]] && [[ -z "$test_cmd" ]]; then
+    ISSUE_VALIDATION_LOG_FILE=""
+    log_info "No install/test commands configured for ${repo_slug}; skipping validation" >&2
     printf '%s\n' "not-configured"
     return 0
   fi
 
   repo_key="$(repo_slug_to_fs_key "$repo_slug")"
-  test_log="${LOG_DIR}/tests-issue-${repo_key}-$(date -u +%Y%m%dT%H%M%SZ).log"
-  ISSUE_TEST_LOG_FILE="$test_log"
-  log_info "Running configured tests: $test_cmd (log: $test_log)" >&2
-  if (
-    cd "$worktree_path"
-    bash -lc "$test_cmd"
-  ) >"$test_log" 2>&1; then
-    log_info "Configured tests passed (log: $test_log)" >&2
-    printf '%s\n' "passed"
+  validation_log="${LOG_DIR}/validation-issue-${repo_key}-$(date -u +%Y%m%dT%H%M%SZ).log"
+  ISSUE_VALIDATION_LOG_FILE="$validation_log"
+
+  if [[ -n "$install_cmd" ]]; then
+    printf 'Install command: %s\n' "$install_cmd" >"$validation_log"
+    if (
+      cd "$worktree_path"
+      bash -lc "$install_cmd"
+    ) >>"$validation_log" 2>&1; then
+      printf '\n' >>"$validation_log"
+    else
+      log_warn "Install command failed (log: $validation_log)" >&2
+      printf '%s\n' "install-failed"
+      return 0
+    fi
   else
-    log_warn "Configured tests failed (log: $test_log)" >&2
-    printf '%s\n' "failed"
+    : >"$validation_log"
   fi
+
+  if [[ -n "$test_cmd" ]]; then
+    printf 'Test command: %s\n' "$test_cmd" >>"$validation_log"
+    if ! (
+      cd "$worktree_path"
+      bash -lc "$test_cmd"
+    ) >>"$validation_log" 2>&1; then
+      log_warn "Test command failed (log: $validation_log)" >&2
+      printf '%s\n' "test-failed"
+      return 0
+    fi
+  fi
+
+  log_info "Validation commands passed (log: $validation_log)" >&2
+  printf '%s\n' "passed"
+  return 0
 }
 
 build_issue_prompt_file() {
@@ -225,8 +248,9 @@ build_issue_prompt_file() {
   local issue_url="$5"
   local issue_body="$6"
   local forbidden_json="$7"
-  local test_command="$8"
-  local instructions_file="$9"
+  local install_command="$8"
+  local test_command="$9"
+  local instructions_file="${10}"
 
   cat "${ROOT_DIR}/agents/issue-worker-prompt.md" >"$output_file"
 
@@ -237,6 +261,7 @@ build_issue_prompt_file() {
 - Issue Number: ${issue_number}
 - Issue URL: ${issue_url}
 - Issue Title: ${issue_title}
+- Install Command: ${install_command:-not configured}
 - Test Command: ${test_command:-not configured}
 
 ## Forbidden Paths (Do Not Modify)
@@ -274,18 +299,24 @@ I'll post a follow-up here with either a draft PR or a clear blocker update.
 EOF
 }
 
-issue_test_status_for_comment() {
-  local test_status="$1"
+issue_validation_status_for_comment() {
+  local validation_status="$1"
 
-  case "$test_status" in
+  case "$validation_status" in
     passed)
-      printf '%s\n' "Configured tests passed."
+      printf '%s\n' "Configured install/test commands passed."
       ;;
     not-configured)
-      printf '%s\n' "No repository test command was configured."
+      printf '%s\n' "No repository install/test commands were configured."
+      ;;
+    install-failed)
+      printf '%s\n' "Configured install command failed."
+      ;;
+    test-failed)
+      printf '%s\n' "Configured test command failed."
       ;;
     *)
-      printf 'Test status: %s.\n' "$test_status"
+      printf 'Validation status: %s.\n' "$validation_status"
       ;;
   esac
 }
@@ -318,7 +349,7 @@ build_issue_success_comment() {
   local issue_number="$1"
   local pr_url="$2"
   local branch_name="$3"
-  local test_status="$4"
+  local validation_status="$4"
   local changed_files="$5"
   local created_new_pr="$6"
 
@@ -335,11 +366,11 @@ build_issue_success_comment() {
     pr_action="opened a draft PR"
   fi
 
-  local files_preview file_count test_note
+  local files_preview file_count validation_note
   files_preview="$(summarize_changed_files_for_comment "$changed_files" 5)"
   file_count="$(head -n1 <<<"$files_preview")"
   files_preview="$(tail -n +2 <<<"$files_preview")"
-  test_note="$(issue_test_status_for_comment "$test_status")"
+  validation_note="$(issue_validation_status_for_comment "$validation_status")"
 
   cat <<EOF
 ${opener}
@@ -347,7 +378,7 @@ I ${pr_action} for this issue: ${pr_url}
 
 Summary:
 - Branch: \`${branch_name}\`
-- ${test_note}
+- ${validation_note}
 - Files touched (${file_count}):
 ${files_preview}
 EOF
@@ -418,6 +449,7 @@ process_issue() {
   local agent_log
   local instructions_file
   local forbidden_json
+  local install_command
   local test_command
   local start_comment
 
@@ -437,6 +469,7 @@ process_issue() {
 
   instructions_file="$(repo_get_instructions_file "$repo_slug")"
   forbidden_json="$(repo_get_forbidden_paths_json "$repo_slug")"
+  install_command="$(repo_get_install_command "$repo_slug")"
   test_command="$(repo_get_test_command "$repo_slug")"
 
   prompt_file="$(mktemp "${STATE_DIR}/issue-prompt-${issue_number}.XXXX.md")"
@@ -451,6 +484,7 @@ process_issue() {
     "$issue_url" \
     "$issue_body" \
     "$forbidden_json" \
+    "$install_command" \
     "$test_command" \
     "$instructions_file"
 
@@ -519,17 +553,17 @@ EOF
     return 0
   fi
 
-  local test_status
-  test_status="$(run_test_command_if_configured "$repo_slug" "$worktree_path")"
-  if [[ "$test_status" == "failed" ]]; then
+  local validation_status
+  validation_status="$(run_validation_commands_if_configured "$repo_slug" "$worktree_path")"
+  if [[ "$validation_status" == "install-failed" ]] || [[ "$validation_status" == "test-failed" ]]; then
     local test_excerpt=""
-    test_excerpt="$(log_excerpt_for_comment "$ISSUE_TEST_LOG_FILE" 80 5000)"
+    test_excerpt="$(log_excerpt_for_comment "$ISSUE_VALIDATION_LOG_FILE" 80 5000)"
     gh_issue_comment "$repo_slug" "$issue_number" "$(cat <<EOF
-Agent produced changes, but configured tests failed. No PR was opened.
+Agent produced changes, but configured validation commands failed (${validation_status}). No PR was opened.
 
-Recent test output:
+Recent validation output:
 \`\`\`
-${test_excerpt:-No test output captured.}
+${test_excerpt:-No validation output captured.}
 \`\`\`
 EOF
 )"
@@ -581,7 +615,7 @@ Automated implementation for ${repo_slug}#${issue_number}.
 
 - Branch: ${branch_name}
 - Safety checks: passed
-- Tests: ${test_status}
+- Validation: ${validation_status}
 
 Closes #${issue_number}
 PRBODY
@@ -611,7 +645,7 @@ PRBODY
   gh_issue_comment \
     "$repo_slug" \
     "$issue_number" \
-    "$(build_issue_success_comment "$issue_number" "$pr_url" "$branch_name" "$test_status" "$changed_files" "$created_new_pr")"
+    "$(build_issue_success_comment "$issue_number" "$pr_url" "$branch_name" "$validation_status" "$changed_files" "$created_new_pr")"
   gh_issue_remove_label "$repo_slug" "$issue_number" "in-progress"
   gh_issue_add_label "$repo_slug" "$issue_number" "pr-created"
   gh_issue_unassign "$repo_slug" "$issue_number" "$AGENT_GITHUB_USERNAME"

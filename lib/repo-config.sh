@@ -93,6 +93,13 @@ repo_get_test_command() {
   jq -r --arg slug "$slug" '.repos[] | select(.slug == $slug) | (.test_command // "")' "$cfg"
 }
 
+repo_get_install_command() {
+  local slug="$1"
+  local cfg
+  cfg="$(repo_config_path)"
+  jq -r --arg slug "$slug" '.repos[] | select(.slug == $slug) | (.install_command // "")' "$cfg"
+}
+
 repo_get_forbidden_paths_json() {
   local slug="$1"
   local cfg
@@ -121,4 +128,3 @@ repo_allows_repo() {
   local slug="$1"
   repo_is_enabled "$slug"
 }
-

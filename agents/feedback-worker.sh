@@ -58,7 +58,7 @@ if ! acquire_shared_lock "$LOCK_FILE"; then
 fi
 
 SYSTEM_PR_LABEL="$(repo_system_pr_label)"
-FEEDBACK_TEST_LOG_FILE=""
+FEEDBACK_VALIDATION_LOG_FILE=""
 FEEDBACK_CLEANUP_ACTIVE=0
 FEEDBACK_CLEANUP_REPO_SLUG=""
 FEEDBACK_CLEANUP_PR_NUMBER=""
@@ -251,35 +251,58 @@ create_pr_worktree() {
   git -C "$local_path" worktree add -B "$head_branch" "$worktree_path" "origin/${head_branch}" >/dev/null
 }
 
-run_test_command_if_configured() {
+run_validation_commands_if_configured() {
   local repo_slug="$1"
   local worktree_path="$2"
+  local install_cmd
   local test_cmd
   local repo_key
-  local test_log
+  local validation_log
+  install_cmd="$(repo_get_install_command "$repo_slug")"
   test_cmd="$(repo_get_test_command "$repo_slug")"
 
-  if [[ -z "$test_cmd" ]]; then
-    FEEDBACK_TEST_LOG_FILE=""
-    log_info "No test command configured for ${repo_slug}; skipping tests" >&2
+  if [[ -z "$install_cmd" ]] && [[ -z "$test_cmd" ]]; then
+    FEEDBACK_VALIDATION_LOG_FILE=""
+    log_info "No install/test commands configured for ${repo_slug}; skipping validation" >&2
     printf '%s\n' "not-configured"
     return 0
   fi
 
   repo_key="$(repo_slug_to_fs_key "$repo_slug")"
-  test_log="${LOG_DIR}/tests-feedback-${repo_key}-$(date -u +%Y%m%dT%H%M%SZ).log"
-  FEEDBACK_TEST_LOG_FILE="$test_log"
-  log_info "Running configured tests: $test_cmd (log: $test_log)" >&2
-  if (
-    cd "$worktree_path"
-    bash -lc "$test_cmd"
-  ) >"$test_log" 2>&1; then
-    log_info "Configured tests passed (log: $test_log)" >&2
-    printf '%s\n' "passed"
+  validation_log="${LOG_DIR}/validation-feedback-${repo_key}-$(date -u +%Y%m%dT%H%M%SZ).log"
+  FEEDBACK_VALIDATION_LOG_FILE="$validation_log"
+
+  if [[ -n "$install_cmd" ]]; then
+    printf 'Install command: %s\n' "$install_cmd" >"$validation_log"
+    if (
+      cd "$worktree_path"
+      bash -lc "$install_cmd"
+    ) >>"$validation_log" 2>&1; then
+      printf '\n' >>"$validation_log"
+    else
+      log_warn "Install command failed (log: $validation_log)" >&2
+      printf '%s\n' "install-failed"
+      return 0
+    fi
   else
-    log_warn "Configured tests failed (log: $test_log)" >&2
-    printf '%s\n' "failed"
+    : >"$validation_log"
   fi
+
+  if [[ -n "$test_cmd" ]]; then
+    printf 'Test command: %s\n' "$test_cmd" >>"$validation_log"
+    if ! (
+      cd "$worktree_path"
+      bash -lc "$test_cmd"
+    ) >>"$validation_log" 2>&1; then
+      log_warn "Test command failed (log: $validation_log)" >&2
+      printf '%s\n' "test-failed"
+      return 0
+    fi
+  fi
+
+  log_info "Validation commands passed (log: $validation_log)" >&2
+  printf '%s\n' "passed"
+  return 0
 }
 
 line_context_snippet() {
@@ -305,10 +328,11 @@ build_feedback_prompt_file() {
   local pr_body="$5"
   local feedback_json="$6"
   local forbidden_json="$7"
-  local test_command="$8"
-  local instructions_file="$9"
-  local diff_snippet="${10}"
-  local line_context="${11}"
+  local install_command="$8"
+  local test_command="$9"
+  local instructions_file="${10}"
+  local diff_snippet="${11}"
+  local line_context="${12}"
 
   cat "${ROOT_DIR}/agents/feedback-worker-prompt.md" >"$output_file"
 
@@ -318,6 +342,7 @@ build_feedback_prompt_file() {
 - Repository: ${repo_slug}
 - PR Number: ${pr_number}
 - PR Title: ${pr_title}
+- Install Command: ${install_command:-not configured}
 - Test Command: ${test_command:-not configured}
 
 ## PR Description
@@ -354,18 +379,24 @@ PROMPT
   fi
 }
 
-feedback_test_status_for_comment() {
-  local test_status="$1"
+feedback_validation_status_for_comment() {
+  local validation_status="$1"
 
-  case "$test_status" in
+  case "$validation_status" in
     passed)
-      printf '%s\n' "Configured tests passed."
+      printf '%s\n' "Configured install/test commands passed."
       ;;
     not-configured)
-      printf '%s\n' "No repository test command was configured."
+      printf '%s\n' "No repository install/test commands were configured."
+      ;;
+    install-failed)
+      printf '%s\n' "Configured install command failed."
+      ;;
+    test-failed)
+      printf '%s\n' "Configured test command failed."
       ;;
     *)
-      printf 'Test status: %s.\n' "$test_status"
+      printf 'Validation status: %s.\n' "$validation_status"
       ;;
   esac
 }
@@ -399,7 +430,7 @@ build_feedback_success_comment() {
   local comment_author="$2"
   local comment_url="$3"
   local commit_sha="$4"
-  local test_status="$5"
+  local validation_status="$5"
   local changed_files="$6"
 
   local -a openers=(
@@ -411,18 +442,18 @@ build_feedback_success_comment() {
   local opener_index=$(( comment_id % ${#openers[@]} ))
   local opener="${openers[$opener_index]}"
 
-  local files_preview file_count test_note
+  local files_preview file_count validation_note
   files_preview="$(summarize_feedback_files_for_comment "$changed_files" 5)"
   file_count="$(head -n1 <<<"$files_preview")"
   files_preview="$(tail -n +2 <<<"$files_preview")"
-  test_note="$(feedback_test_status_for_comment "$test_status")"
+  validation_note="$(feedback_validation_status_for_comment "$validation_status")"
 
   cat <<EOF
 ${opener}
 Addressed ${comment_url} from @${comment_author} in commit \`${commit_sha}\`.
 
 Summary:
-- ${test_note}
+- ${validation_note}
 - Files touched (${file_count}):
 ${files_preview}
 EOF
@@ -530,7 +561,7 @@ process_feedback_comment() {
   fi
 
   local local_repo_path repo_key worktree_path
-  local prompt_file agent_log instructions_file forbidden_json test_command
+  local prompt_file agent_log instructions_file forbidden_json install_command test_command
   local diff_snippet line_context
 
   local_repo_path="$(repo_get_local_path "$repo_slug")"
@@ -544,6 +575,7 @@ process_feedback_comment() {
 
   instructions_file="$(repo_get_instructions_file "$repo_slug")"
   forbidden_json="$(repo_get_forbidden_paths_json "$repo_slug")"
+  install_command="$(repo_get_install_command "$repo_slug")"
   test_command="$(repo_get_test_command "$repo_slug")"
 
   diff_snippet="$(gh_pr_diff "$repo_slug" "$pr_number" | sed -n '1,400p')"
@@ -568,6 +600,7 @@ process_feedback_comment() {
     "$pr_body" \
     "$feedback_json" \
     "$forbidden_json" \
+    "$install_command" \
     "$test_command" \
     "$instructions_file" \
     "$diff_snippet" \
@@ -634,21 +667,21 @@ EOF
     return 0
   fi
 
-  local test_status
-  test_status="$(run_test_command_if_configured "$repo_slug" "$worktree_path")"
-  if [[ "$test_status" == "failed" ]]; then
+  local validation_status
+  validation_status="$(run_validation_commands_if_configured "$repo_slug" "$worktree_path")"
+  if [[ "$validation_status" == "install-failed" ]] || [[ "$validation_status" == "test-failed" ]]; then
     local test_excerpt=""
-    test_excerpt="$(log_excerpt_for_comment "$FEEDBACK_TEST_LOG_FILE" 80 5000)"
+    test_excerpt="$(log_excerpt_for_comment "$FEEDBACK_VALIDATION_LOG_FILE" 80 5000)"
     gh_pr_comment "$repo_slug" "$pr_number" "$(cat <<EOF
-I applied a candidate change for ${comment_url}, but configured tests failed, so nothing was pushed.
+I applied a candidate change for ${comment_url}, but configured validation commands failed (${validation_status}), so nothing was pushed.
 
-Recent test output:
+Recent validation output:
 \`\`\`
-${test_excerpt:-No test output captured.}
+${test_excerpt:-No validation output captured.}
 \`\`\`
 EOF
     )"
-    state_mark_processed "$key" "$repo_slug" "$pr_number" "$comment_type" "$comment_id" "$comment_author" "tests_failed" "$comment_url" "tests failed"
+    state_mark_processed "$key" "$repo_slug" "$pr_number" "$comment_type" "$comment_id" "$comment_author" "validation_failed" "$comment_url" "validation commands failed"
     git -C "$local_repo_path" worktree remove --force "$worktree_path" >/dev/null 2>&1 || true
     feedback_cleanup_deactivate
     return 0
@@ -674,7 +707,7 @@ EOF
   gh_pr_comment \
     "$repo_slug" \
     "$pr_number" \
-    "$(build_feedback_success_comment "$comment_id" "$comment_author" "$comment_url" "$commit_sha" "$test_status" "$changed_files")"
+    "$(build_feedback_success_comment "$comment_id" "$comment_author" "$comment_url" "$commit_sha" "$validation_status" "$changed_files")"
   state_mark_processed "$key" "$repo_slug" "$pr_number" "$comment_type" "$comment_id" "$comment_author" "applied" "$comment_url" "commit ${commit_sha}"
 
   git -C "$local_repo_path" worktree remove --force "$worktree_path" >/dev/null 2>&1 || true

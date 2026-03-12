@@ -8,7 +8,8 @@
       "enabled": true,
       "local_path": "./projects/noderef/noderef",
       "instructions_file": "configs/repos/noderef__noderef.md",
-      "test_command": "npm install && pnpm test",
+      "install_command": "pnpm install --frozen-lockfile --prod=false",
+      "test_command": "pnpm test",
       "forbidden_paths": [
         ".env",
         ".env.*",
