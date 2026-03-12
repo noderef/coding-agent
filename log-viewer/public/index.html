@@ -3,1305 +3,475 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Coding Agent – Log Viewer</title>
+  <title>Coding Agent - Log Viewer</title>
+  <link rel="stylesheet" href="https://unpkg.com/@mantine/core@8.3.16/styles.css" />
   <style>
-    :root {
-      --bg: #0a0a0a;
-      --sidebar: #111;
-      --panel: #1a1a1a;
-      --muted: #9a9a9a;
-      --text: #f4f4f4;
-      --line: #222;
-      --button-active-bg: #fff;
-      --button-active-text: #111;
-      --button-idle-text: #b8b8b8;
-      --button-hover-bg: rgba(255, 255, 255, 0.04);
-      --toggle-hover-bg: rgba(255, 255, 255, 0.06);
-      --resize-hover-bg: rgba(255, 255, 255, 0.08);
-      --danger: #cf3434;
-      --info: #4f8df7;
-      --warn: #f6a623;
-      --error: #f14e4e;
-      --shadow: rgba(0, 0, 0, 0.3);
-      --sidebar-width: 160px;
-      --sidebar-collapsed-width: 44px;
-    }
-
-    body.light {
-      --bg: #f6f6f6;
-      --sidebar: #ffffff;
-      --panel: #ffffff;
-      --muted: #666;
-      --text: #131313;
-      --line: #e5e5e5;
-      --button-active-bg: #121212;
-      --button-active-text: #ffffff;
-      --button-idle-text: #3f3f3f;
-      --button-hover-bg: rgba(0, 0, 0, 0.03);
-      --toggle-hover-bg: rgba(0, 0, 0, 0.04);
-      --resize-hover-bg: rgba(0, 0, 0, 0.06);
-      --danger: #d43030;
-      --shadow: rgba(0, 0, 0, 0.08);
-    }
-
-    * {
-      box-sizing: border-box;
-    }
-
-    body {
+    html,
+    body,
+    #root {
+      height: 100%;
       margin: 0;
-      background: var(--bg);
-      color: var(--text);
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      min-height: 100vh;
-    }
-
-    .app {
-      display: flex;
-      min-height: 100vh;
-    }
-
-    .sidebar {
-      width: var(--sidebar-width);
-      flex: 0 0 var(--sidebar-width);
-      background: var(--sidebar);
-      border-right: 1px solid var(--line);
-      padding: 12px 10px 12px 12px;
-      position: fixed;
-      left: 0;
-      top: 0;
-      bottom: 0;
-      overflow: hidden;
-      z-index: 50;
-      transition: width 200ms cubic-bezier(0.4, 0, 0.2, 1);
-    }
-
-    .sidebar.collapsed {
-      width: var(--sidebar-collapsed-width);
-      padding: 12px 6px;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-    }
-
-    .sidebar-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding-bottom: 10px;
-      margin-bottom: 6px;
-      border-bottom: 1px solid var(--line);
-      gap: 6px;
-    }
-
-    .logo {
-      margin: 0;
-      font-size: 15px;
-      font-weight: 700;
-      letter-spacing: -0.01em;
-      line-height: 1.2;
-      display: inline-flex;
-      align-items: center;
-      white-space: nowrap;
-      overflow: hidden;
-    }
-
-    .logo-icon {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      width: 14px;
-      min-width: 14px;
-    }
-
-    .logo-text {
-      margin-left: 2px;
-      transition: opacity 150ms ease;
-    }
-
-    .collapse-toggle {
-      width: 28px;
-      height: 28px;
-      border: 1px solid var(--line);
-      border-radius: 6px;
-      background: transparent;
-      color: var(--button-idle-text);
-      cursor: pointer;
-      transition: transform 200ms ease, background 150ms ease, color 150ms ease;
-      flex: 0 0 28px;
-      padding: 0;
-      line-height: 1;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 13px;
-    }
-
-    .collapse-toggle:hover {
-      background: var(--toggle-hover-bg);
-      color: var(--text);
-    }
-
-    .section-label {
-      color: var(--muted);
-      font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      margin: 14px 0 8px;
-      padding-left: 10px;
-      transition: opacity 150ms ease;
-    }
-
-    .filter-btn,
-    .file-btn {
-      width: 100%;
-      border: 1px solid transparent;
-      border-left: 2px solid transparent;
-      color: var(--button-idle-text);
-      background: transparent;
-      border-radius: 6px;
-      text-align: left;
-      font-size: 12.5px;
-      padding: 7px 10px;
-      margin-bottom: 6px;
-      cursor: pointer;
-      transition: background 120ms ease, color 120ms ease, border-color 120ms ease, opacity 150ms ease;
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      min-height: 30px;
-      overflow: hidden;
-    }
-
-    .filter-btn:hover,
-    .file-btn:hover {
-      background: var(--button-hover-bg);
-    }
-
-    .filter-btn.active,
-    .file-btn.active {
-      border-left-color: var(--info);
-      background: var(--button-hover-bg);
-      color: var(--text);
-      font-weight: 700;
-    }
-
-    .btn-icon {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      width: 16px;
-      min-width: 16px;
-      height: 16px;
-      font-size: 14px;
-      line-height: 1;
-      flex-shrink: 0;
-      text-align: center;
-    }
-
-    .btn-text {
-      opacity: 1;
-      transition: opacity 150ms ease;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .file-filters {
-      max-height: calc(100vh - 280px);
-      overflow-y: auto;
-      padding-right: 2px;
-    }
-
-    .file-filters::-webkit-scrollbar {
-      width: 4px;
-    }
-
-    .file-filters::-webkit-scrollbar-thumb {
-      background: var(--line);
-      border-radius: 999px;
-    }
-
-    .files-collapsed-badge {
-      display: none;
-      margin-top: 8px;
-      width: 100%;
-      border: 1px solid transparent;
-      border-left: 2px solid var(--info);
-      border-radius: 6px;
-      padding: 7px 0;
-      align-items: center;
-      justify-content: center;
-      gap: 4px;
-      color: var(--button-idle-text);
-      cursor: pointer;
-      background: var(--button-hover-bg);
-      font-size: 12px;
-      font-weight: 700;
-    }
-
-    .sidebar.collapsed .logo-text,
-    .sidebar.collapsed .btn-text {
-      opacity: 0;
-      width: 0;
-      margin: 0;
-      pointer-events: none;
-    }
-
-    .sidebar.collapsed .section-label {
-      display: none;
-    }
-
-    .sidebar.collapsed .sidebar-header {
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 4px;
-      width: 100%;
-      padding-bottom: 8px;
-      margin-bottom: 8px;
-    }
-
-    .sidebar.collapsed .logo {
-      width: 32px;
-      justify-content: center;
-    }
-
-    .sidebar.collapsed .logo-icon {
-      width: 16px;
-      min-width: 16px;
-    }
-
-    .sidebar.collapsed .filter-btn,
-    .sidebar.collapsed .files-collapsed-badge {
-      width: 32px;
-      height: 32px;
-      min-height: 32px;
-      padding: 0;
-      margin: 0 auto 4px;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      border-radius: 8px;
-      border-left: none;
-      border: 1px solid transparent;
-      gap: 0;
-    }
-
-    .sidebar.collapsed .filter-btn {
-      margin-bottom: 4px;
-    }
-
-    .sidebar.collapsed .filter-btn.active {
-      background: var(--button-hover-bg);
-      border-color: var(--line);
-    }
-
-    .sidebar.collapsed .file-filters {
-      display: none;
-    }
-
-    .sidebar.collapsed .files-collapsed-badge {
-      display: inline-flex;
-      margin-top: 8px;
-      background: var(--button-hover-bg);
-      font-size: 11px;
-      font-weight: 700;
-    }
-
-    .sidebar.collapsed .collapse-toggle {
-      transform: rotate(180deg);
-    }
-
-    .resize-handle {
-      position: absolute;
-      right: -2px;
-      top: 0;
-      bottom: 0;
-      width: 4px;
-      cursor: col-resize;
-      z-index: 55;
-      transition: background 120ms ease;
-    }
-
-    .resize-handle:hover,
-    .resize-handle.active {
-      background: var(--resize-hover-bg);
-    }
-
-    .main {
-      margin-left: var(--sidebar-width);
-      width: calc(100% - var(--sidebar-width));
-      padding: 16px;
-      transition: margin-left 200ms cubic-bezier(0.4, 0, 0.2, 1), width 200ms cubic-bezier(0.4, 0, 0.2, 1);
-    }
-
-    .main-inner {
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 12px;
-      box-shadow: 0 6px 18px var(--shadow);
-      overflow: hidden;
-      min-height: calc(100vh - 32px);
-      display: flex;
-      flex-direction: column;
-    }
-
-    .header {
-      display: grid;
-      grid-template-columns: minmax(180px, 1fr) auto;
-      gap: 12px;
-      align-items: center;
-      padding: 12px 14px;
-      border-bottom: 1px solid var(--line);
-    }
-
-    .search input {
-      width: 100%;
-      border: 1px solid var(--line);
-      background: transparent;
-      color: var(--text);
-      border-radius: 8px;
-      padding: 9px 10px;
-      outline: none;
-      font-size: 14px;
-    }
-
-    .controls {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      justify-content: flex-end;
-    }
-
-    .control-label {
-      color: var(--muted);
-      font-size: 12px;
-    }
-
-    .switch {
-      position: relative;
-      display: inline-flex;
-      width: 40px;
-      height: 22px;
-      align-items: center;
-    }
-
-    .switch input {
-      opacity: 0;
-      width: 0;
-      height: 0;
-      position: absolute;
-    }
-
-    .slider {
-      width: 40px;
-      height: 22px;
-      border-radius: 100px;
-      background: #3d3d3d;
-      position: relative;
-      cursor: pointer;
-      transition: background 150ms ease;
-    }
-
-    .slider::after {
-      content: '';
-      position: absolute;
-      width: 16px;
-      height: 16px;
-      border-radius: 50%;
-      left: 3px;
-      top: 3px;
-      background: #fff;
-      transition: transform 150ms ease;
-    }
-
-    .switch input:checked + .slider {
-      background: #1f7bff;
-    }
-
-    .switch input:checked + .slider::after {
-      transform: translateX(18px);
-    }
-
-    .icon-btn,
-    .clear-btn,
-    .pager-btn,
-    .modal-btn,
-    .menu-btn {
-      border: 1px solid var(--line);
-      background: transparent;
-      color: var(--text);
-      border-radius: 8px;
-      padding: 8px 10px;
-      font-size: 13px;
-      cursor: pointer;
-    }
-
-    .icon-btn {
-      width: 34px;
-      padding: 8px 0;
-      text-align: center;
-      font-size: 15px;
-    }
-
-    .clear-btn {
-      border-color: rgba(207, 52, 52, 0.4);
-      color: #fff;
-      background: var(--danger);
-      font-weight: 700;
-    }
-
-    .table-wrap {
-      width: 100%;
-      overflow-x: auto;
-      flex: 1 1 auto;
-    }
-
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      table-layout: fixed;
-    }
-
-    thead th {
-      text-align: left;
-      font-size: 11px;
-      color: var(--muted);
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      padding: 10px 14px;
-      border-bottom: 1px solid var(--line);
-      white-space: nowrap;
-    }
-
-    tbody td {
-      padding: 10px 14px;
-      border-bottom: 1px solid var(--line);
-      vertical-align: top;
-      font-size: 13px;
-    }
-
-    .level-cell {
-      width: 96px;
-    }
-
-    .level-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 11px;
-      font-weight: 800;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-      font-variant: small-caps;
-    }
-
-    .dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      display: inline-block;
-      flex: 0 0 8px;
-    }
-
-    .dot.info { background: var(--info); }
-    .dot.warn { background: var(--warn); }
-    .dot.error { background: var(--error); }
-
-    .message-cell {
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-      white-space: pre-wrap;
-      word-break: break-word;
-      line-height: 1.4;
-    }
-
-    th.service-col {
-      width: 150px;
-    }
-
-    .service-cell {
-      color: var(--muted);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    th.time-col {
-      width: 185px;
-    }
-
-    .timestamp-cell {
-      text-align: right;
-      color: var(--muted);
-      white-space: nowrap;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-    }
-
-    .empty {
-      text-align: center;
-      color: var(--muted);
-      padding: 32px 12px;
-      font-size: 14px;
-    }
-
-    .pagination {
-      padding: 12px 14px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      border-top: 1px solid var(--line);
-    }
-
-    .page-info {
-      color: var(--muted);
-      font-size: 13px;
-    }
-
-    .pager-actions {
-      display: inline-flex;
-      gap: 8px;
-    }
-
-    .pager-btn:disabled {
-      opacity: 0.45;
-      cursor: not-allowed;
-    }
-
-    .menu-btn {
-      display: none;
-      position: fixed;
-      top: 8px;
-      left: 8px;
-      z-index: 60;
-      background: var(--panel);
-    }
-
-    .overlay {
-      display: none;
-      position: fixed;
-      inset: 0;
-      background: rgba(0, 0, 0, 0.5);
-      z-index: 45;
-    }
-
-    .overlay.open {
-      display: block;
-    }
-
-    .modal {
-      position: fixed;
-      inset: 0;
-      background: rgba(0, 0, 0, 0.55);
-      display: none;
-      align-items: center;
-      justify-content: center;
-      z-index: 80;
-      padding: 20px;
-    }
-
-    .modal.show {
-      display: flex;
-    }
-
-    .modal-card {
-      width: 100%;
-      max-width: 420px;
-      background: var(--panel);
-      color: var(--text);
-      border-radius: 12px;
-      border: 1px solid var(--line);
-      padding: 16px;
-    }
-
-    .modal-title {
-      margin: 0 0 8px;
-      font-size: 18px;
-      font-weight: 800;
-    }
-
-    .modal-copy {
-      margin: 0 0 12px;
-      color: var(--muted);
-      font-size: 13px;
-    }
-
-    .modal-input {
-      width: 100%;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      background: transparent;
-      color: var(--text);
-      font-size: 14px;
-      padding: 9px 10px;
-      outline: none;
-      margin-bottom: 10px;
-    }
-
-    .modal-actions {
-      display: flex;
-      justify-content: flex-end;
-      gap: 8px;
-    }
-
-    .modal-btn.primary {
-      background: var(--button-active-bg);
-      color: var(--button-active-text);
-      border-color: var(--button-active-bg);
-      font-weight: 700;
-    }
-
-    @media (max-width: 960px) {
-      .service-cell,
-      th.service-col {
-        display: none;
-      }
-    }
-
-    @media (max-width: 820px) {
-      .menu-btn {
-        display: inline-block;
-      }
-
-      .sidebar {
-        width: min(260px, 80vw);
-        transform: translateX(-100%);
-        transition: transform 170ms ease;
-      }
-
-      .sidebar.open {
-        transform: translateX(0);
-      }
-
-      .resize-handle,
-      .collapse-toggle,
-      .files-collapsed-badge {
-        display: none !important;
-      }
-
-      .main {
-        margin-left: 0;
-        width: 100%;
-        padding: 8px;
-        transition: none;
-      }
-
-      .main-inner {
-        min-height: calc(100vh - 16px);
-      }
-
-      .header {
-        grid-template-columns: 1fr;
-        padding-top: 42px;
-      }
-
-      .controls {
-        justify-content: flex-start;
-        flex-wrap: wrap;
-      }
-
-      .timestamp-cell,
-      th.time-col {
-        width: 140px;
-      }
     }
   </style>
 </head>
 <body>
-  <button id="menuToggle" class="menu-btn" aria-label="Toggle menu">☰</button>
-  <div id="overlay" class="overlay"></div>
+  <div id="root"></div>
 
-  <div class="app">
-    <aside id="sidebar" class="sidebar">
-      <div class="sidebar-header">
-        <div class="logo">
-          <span class="logo-icon">⚡</span>
-          <span class="logo-text"> Coding Agent</span>
-        </div>
-        <button class="collapse-toggle" id="collapseToggle" aria-label="Collapse sidebar">«</button>
-      </div>
-
-      <div class="section-label">Levels</div>
-      <button class="filter-btn active" data-level="">
-        <span class="btn-icon">A</span>
-        <span class="btn-text">All Levels</span>
-      </button>
-      <button class="filter-btn" data-level="info">
-        <span class="btn-icon">I</span>
-        <span class="btn-text">Info</span>
-      </button>
-      <button class="filter-btn" data-level="warn">
-        <span class="btn-icon">W</span>
-        <span class="btn-text">Warning</span>
-      </button>
-      <button class="filter-btn" data-level="error">
-        <span class="btn-icon">E</span>
-        <span class="btn-text">Error</span>
-      </button>
-
-      <div class="section-label">Files</div>
-      <div class="files-collapsed-badge" id="filesCollapsedBadge" title="Files">
-        <span id="filesCollapsedCount">0</span>
-      </div>
-      <div id="fileFilters" class="file-filters"></div>
-      <div class="resize-handle" id="resizeHandle"></div>
-    </aside>
-
-    <main class="main">
-      <section class="main-inner">
-        <div class="header">
-          <div class="search">
-            <input id="searchInput" type="search" placeholder="Search in logs..." />
-          </div>
-
-          <div class="controls">
-            <span class="control-label">Auto-Refresh</span>
-            <label class="switch" title="Auto-refresh every 5 seconds">
-              <input id="autoRefreshToggle" type="checkbox" />
-              <span class="slider"></span>
-            </label>
-            <button id="themeToggle" class="icon-btn" title="Toggle theme">☾</button>
-            <button id="clearFilters" class="clear-btn">Clear Filter</button>
-          </div>
-        </div>
-
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th class="level-cell">Level</th>
-                <th class="message-col">Message</th>
-                <th class="service-col">Service</th>
-                <th class="time-col" style="text-align:right;">Timestamp</th>
-              </tr>
-            </thead>
-            <tbody id="logTableBody"></tbody>
-          </table>
-        </div>
-
-        <div class="pagination">
-          <div id="pageInfo" class="page-info">Page 1 of 1</div>
-          <div class="pager-actions">
-            <button id="prevPage" class="pager-btn">Previous</button>
-            <button id="nextPage" class="pager-btn">Next</button>
-          </div>
-        </div>
-      </section>
-    </main>
-  </div>
-
-  <div id="authModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="authTitle">
-    <div class="modal-card">
-      <h2 id="authTitle" class="modal-title">Authentication Required</h2>
-      <p class="modal-copy">Provide the configured token to read logs.</p>
-      <input id="authTokenInput" class="modal-input" type="password" placeholder="Bearer token" />
-      <div class="modal-actions">
-        <button id="authCancel" class="modal-btn">Cancel</button>
-        <button id="authSave" class="modal-btn primary">Save Token</button>
-      </div>
-    </div>
-  </div>
-
-  <script>
-    const SIDEBAR_COLLAPSED_WIDTH = 44;
-    const SIDEBAR_MIN_EXPANDED_WIDTH = 60;
-    const SIDEBAR_DEFAULT_WIDTH = 160;
-    const SIDEBAR_MAX_WIDTH = 320;
-
-    function storedNumber(key, fallback) {
-      const raw = Number(localStorage.getItem(key));
-      return Number.isFinite(raw) ? raw : fallback;
-    }
-
-    const state = {
-      level: '',
-      file: '',
-      search: '',
-      page: 1,
-      limit: 50,
-      totalPages: 1,
-      totalLogs: 0,
-      autoRefresh: true,
-      refreshTimer: null,
-      token: localStorage.getItem('logViewerToken') || '',
-      theme: localStorage.getItem('logViewerTheme') || 'dark',
-      files: [],
-      sidebarOpen: false,
-      sidebarCollapsed: localStorage.getItem('sidebarCollapsed') === '1',
-      sidebarWidth: storedNumber('sidebarWidth', SIDEBAR_DEFAULT_WIDTH),
-    };
-
-    const els = {
-      fileFilters: document.getElementById('fileFilters'),
-      filesCollapsedBadge: document.getElementById('filesCollapsedBadge'),
-      filesCollapsedCount: document.getElementById('filesCollapsedCount'),
-      searchInput: document.getElementById('searchInput'),
-      logTableBody: document.getElementById('logTableBody'),
-      pageInfo: document.getElementById('pageInfo'),
-      prevPage: document.getElementById('prevPage'),
-      nextPage: document.getElementById('nextPage'),
-      autoRefreshToggle: document.getElementById('autoRefreshToggle'),
-      clearFilters: document.getElementById('clearFilters'),
-      themeToggle: document.getElementById('themeToggle'),
-      authModal: document.getElementById('authModal'),
-      authTokenInput: document.getElementById('authTokenInput'),
-      authSave: document.getElementById('authSave'),
-      authCancel: document.getElementById('authCancel'),
-      sidebar: document.getElementById('sidebar'),
-      collapseToggle: document.getElementById('collapseToggle'),
-      resizeHandle: document.getElementById('resizeHandle'),
-      menuToggle: document.getElementById('menuToggle'),
-      overlay: document.getElementById('overlay'),
-    };
-
-    const levelButtons = Array.from(document.querySelectorAll('.filter-btn'));
-
-    function clamp(value, min, max) {
-      return Math.max(min, Math.min(max, value));
-    }
-
-    function isMobileViewport() {
-      return window.matchMedia('(max-width: 820px)').matches;
-    }
-
-    function saveSidebarPrefs() {
-      localStorage.setItem('sidebarCollapsed', state.sidebarCollapsed ? '1' : '0');
-      localStorage.setItem('sidebarWidth', String(state.sidebarWidth));
-    }
-
-    function updateSidebarLayout() {
-      const collapsed = !isMobileViewport() && state.sidebarCollapsed;
-      const width = collapsed
-        ? SIDEBAR_COLLAPSED_WIDTH
-        : clamp(state.sidebarWidth, SIDEBAR_MIN_EXPANDED_WIDTH, SIDEBAR_MAX_WIDTH);
-
-      document.documentElement.style.setProperty('--sidebar-width', `${width}px`);
-      els.sidebar.classList.toggle('collapsed', collapsed);
-
-      if (els.collapseToggle) {
-        els.collapseToggle.textContent = collapsed ? '»' : '«';
-        els.collapseToggle.setAttribute('aria-label', collapsed ? 'Expand sidebar' : 'Collapse sidebar');
+  <script type="importmap">
+    {
+      "imports": {
+        "react": "https://esm.sh/react@18.3.1",
+        "react-dom": "https://esm.sh/react-dom@18.3.1",
+        "react-dom/client": "https://esm.sh/react-dom@18.3.1/client",
+        "react/jsx-runtime": "https://esm.sh/react@18.3.1/jsx-runtime"
       }
     }
+  </script>
 
-    function applyTheme() {
-      document.body.classList.toggle('light', state.theme === 'light');
-      els.themeToggle.textContent = state.theme === 'light' ? '☀' : '☾';
-      localStorage.setItem('logViewerTheme', state.theme);
+  <script type="module">
+    import React, { useCallback, useEffect, useMemo, useState } from "react";
+    import { createRoot } from "react-dom/client";
+    import * as Mantine from "https://esm.sh/@mantine/core@8.3.16?bundle&external=react,react-dom,react-dom/client";
+    import htm from "https://esm.sh/htm@3.1.1";
+
+    const html = htm.bind(React.createElement);
+    const {
+      AppShell,
+      Badge,
+      Burger,
+      Button,
+      Group,
+      Loader,
+      MantineProvider,
+      Modal,
+      Paper,
+      PasswordInput,
+      ScrollArea,
+      Stack,
+      Switch,
+      Table,
+      Text,
+      TextInput,
+      Title,
+    } = Mantine;
+
+    const LEVEL_OPTIONS = [
+      { value: "", label: "All levels" },
+      { value: "info", label: "Info" },
+      { value: "warn", label: "Warning" },
+      { value: "error", label: "Error" },
+    ];
+
+    function normalizeFileName(entry) {
+      if (typeof entry === "string") return entry;
+      if (entry && typeof entry.file === "string") return entry.file;
+      return "";
     }
 
     function formatTimestamp(value) {
       const date = new Date(value);
       if (Number.isNaN(date.getTime())) return value;
-      return date.toLocaleString('en-US', {
-        year: 'numeric',
-        month: 'numeric',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false,
-      });
+      return date.toLocaleString();
     }
 
-    function escapeHtml(text) {
-      return String(text)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#039;');
+    function levelBadgeColor(level) {
+      const normalized = String(level || "").toLowerCase();
+      if (normalized === "error") return "red";
+      if (normalized === "warn") return "yellow";
+      return "blue";
     }
 
-    function levelClass(level) {
-      const l = String(level).toLowerCase();
-      if (l === 'warn') return 'warn';
-      if (l === 'error') return 'error';
-      return 'info';
-    }
-
-    function setSidebarOpen(open) {
-      state.sidebarOpen = open;
-      els.sidebar.classList.toggle('open', open);
-      els.overlay.classList.toggle('open', open);
-    }
-
-    function showAuthModal() {
-      els.authTokenInput.value = state.token;
-      els.authModal.classList.add('show');
-      setTimeout(() => els.authTokenInput.focus(), 10);
-    }
-
-    function hideAuthModal() {
-      els.authModal.classList.remove('show');
-    }
-
-    async function fetchJson(url) {
-      const headers = {};
-      if (state.token) {
-        headers.Authorization = `Bearer ${state.token}`;
+    class HttpError extends Error {
+      constructor(message, status) {
+        super(message);
+        this.name = "HttpError";
+        this.status = status;
       }
+    }
 
+    async function fetchJson(url, token) {
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
       const response = await fetch(url, { headers });
+
       if (response.status === 401) {
-        showAuthModal();
-        throw new Error('Unauthorized');
+        throw new HttpError("Unauthorized", 401);
       }
 
       if (!response.ok) {
-        const fallback = `${response.status} ${response.statusText}`;
-        let details = fallback;
+        let message = `${response.status} ${response.statusText}`;
         try {
           const payload = await response.json();
-          details = payload.error || fallback;
+          if (payload && typeof payload.error === "string") {
+            message = payload.error;
+          }
         } catch (_error) {
-          details = fallback;
+          // Keep fallback message.
         }
-        throw new Error(details);
+        throw new HttpError(message, response.status);
       }
 
       return response.json();
     }
 
-    function renderFileFilters() {
-      const filesCount = state.files.length;
-      els.filesCollapsedCount.textContent = String(filesCount);
+    function App() {
+      const [level, setLevel] = useState("");
+      const [file, setFile] = useState("");
+      const [searchInput, setSearchInput] = useState("");
+      const [search, setSearch] = useState("");
+      const [page, setPage] = useState(1);
+      const [files, setFiles] = useState([]);
+      const [logs, setLogs] = useState([]);
+      const [totalPages, setTotalPages] = useState(1);
+      const [totalLogs, setTotalLogs] = useState(0);
+      const [loading, setLoading] = useState(false);
+      const [error, setError] = useState("");
+      const [autoRefresh, setAutoRefresh] = useState(true);
+      const [token, setToken] = useState(localStorage.getItem("logViewerToken") || "");
+      const [authOpen, setAuthOpen] = useState(false);
+      const [authDraft, setAuthDraft] = useState(token);
+      const [mobileNavOpen, setMobileNavOpen] = useState(false);
+      const limit = 50;
 
-      const allButton = `
-        <button class="file-btn ${state.file ? '' : 'active'}" data-file="">
-          <span class="btn-icon">📁</span>
-          <span class="btn-text file-text">All Files</span>
-        </button>
-      `;
+      const fileNames = useMemo(
+        () => files.map((entry) => normalizeFileName(entry)).filter(Boolean),
+        [files]
+      );
 
-      const rows = state.files.map((entry) => {
-        const file = typeof entry === 'string' ? entry : entry.file;
-        const active = state.file === file ? 'active' : '';
-        return `
-          <button class="file-btn ${active}" data-file="${escapeHtml(file)}" title="${escapeHtml(file)}">
-            <span class="btn-icon">📄</span>
-            <span class="btn-text file-text">${escapeHtml(file)}</span>
-          </button>
-        `;
-      });
+      const openAuthModal = useCallback(() => {
+        setAuthDraft(token);
+        setAuthOpen(true);
+      }, [token]);
 
-      els.fileFilters.innerHTML = allButton + rows.join('');
-
-      Array.from(document.querySelectorAll('.file-btn')).forEach((button) => {
-        button.addEventListener('click', () => {
-          state.file = button.dataset.file || '';
-          state.page = 1;
-          renderFileFilters();
-          void loadLogs();
-          if (isMobileViewport()) {
-            setSidebarOpen(false);
+      const loadFiles = useCallback(async () => {
+        try {
+          const payload = await fetchJson("/api/files", token);
+          setFiles(Array.isArray(payload.files) ? payload.files : []);
+        } catch (fetchError) {
+          if (fetchError instanceof HttpError && fetchError.status === 401) {
+            openAuthModal();
+            return;
           }
+          setFiles([]);
+        }
+      }, [openAuthModal, token]);
+
+      const loadLogs = useCallback(async () => {
+        setLoading(true);
+        setError("");
+
+        const params = new URLSearchParams({
+          page: String(page),
+          limit: String(limit),
         });
-      });
-    }
+        if (level) params.set("level", level);
+        if (file) params.set("file", file);
+        if (search) params.set("search", search);
 
-    function renderLevelFilters() {
-      levelButtons.forEach((button) => {
-        button.classList.toggle('active', (button.dataset.level || '') === state.level);
-      });
-    }
+        try {
+          const payload = await fetchJson(`/api/logs?${params.toString()}`, token);
+          const nextLogs = Array.isArray(payload.logs) ? payload.logs : [];
+          const nextFiles = Array.isArray(payload.files) ? payload.files : [];
+          const nextTotalPages = Number(payload.totalPages) > 0 ? Number(payload.totalPages) : 1;
+          const nextPage = Number(payload.currentPage) > 0 ? Number(payload.currentPage) : 1;
 
-    function renderLogs(logs) {
-      if (!logs.length) {
-        els.logTableBody.innerHTML = '<tr><td colspan="4" class="empty">No logs found.</td></tr>';
-        return;
-      }
+          setLogs(nextLogs);
+          setFiles(nextFiles);
+          setTotalPages(nextTotalPages);
+          setTotalLogs(Number(payload.totalLogs) || 0);
+          setPage(nextPage);
+        } catch (fetchError) {
+          if (fetchError instanceof HttpError && fetchError.status === 401) {
+            openAuthModal();
+            return;
+          }
 
-      const rows = logs.map((entry) => {
-        const lvl = escapeHtml(entry.level || 'INFO');
-        const dotClass = levelClass(entry.level);
-        const message = escapeHtml(entry.message || '');
-        const service = escapeHtml(entry.service || '-');
-        const time = escapeHtml(formatTimestamp(entry.timestamp));
-
-        return `
-          <tr>
-            <td class="level-cell">
-              <span class="level-badge"><span class="dot ${dotClass}"></span>${lvl}</span>
-            </td>
-            <td class="message-cell">${message}</td>
-            <td class="service-cell">${service}</td>
-            <td class="timestamp-cell">${time}</td>
-          </tr>
-        `;
-      });
-
-      els.logTableBody.innerHTML = rows.join('');
-    }
-
-    function renderPagination() {
-      els.pageInfo.textContent = `Page ${state.page} of ${state.totalPages}`;
-      els.prevPage.disabled = state.page <= 1;
-      els.nextPage.disabled = state.page >= state.totalPages;
-    }
-
-    async function loadFiles() {
-      try {
-        const payload = await fetchJson('/api/files');
-        state.files = Array.isArray(payload.files) ? payload.files : [];
-      } catch (error) {
-        if (error.message !== 'Unauthorized') {
-          state.files = [];
+          setLogs([]);
+          setTotalPages(1);
+          setTotalLogs(0);
+          setPage(1);
+          setError(fetchError instanceof Error ? fetchError.message : "Failed to load logs");
+        } finally {
+          setLoading(false);
         }
-      }
+      }, [file, level, openAuthModal, page, search, token]);
 
-      renderFileFilters();
-    }
+      useEffect(() => {
+        const timer = setTimeout(() => {
+          setSearch(searchInput.trim());
+        }, 300);
+        return () => clearTimeout(timer);
+      }, [searchInput]);
 
-    async function loadLogs() {
-      const params = new URLSearchParams({
-        page: String(state.page),
-        limit: String(state.limit),
-      });
-      if (state.level) params.set('level', state.level);
-      if (state.file) params.set('file', state.file);
-      if (state.search) params.set('search', state.search);
+      useEffect(() => {
+        void loadFiles();
+      }, [loadFiles]);
 
-      try {
-        const payload = await fetchJson(`/api/logs?${params.toString()}`);
-        const logs = Array.isArray(payload.logs) ? payload.logs : [];
+      useEffect(() => {
+        void loadLogs();
+      }, [loadLogs]);
 
-        if (Array.isArray(payload.files)) {
-          state.files = payload.files;
-          renderFileFilters();
-        }
-
-        state.totalPages = Number(payload.totalPages) > 0 ? Number(payload.totalPages) : 1;
-        state.totalLogs = Number(payload.totalLogs) || 0;
-        state.page = Number(payload.currentPage) > 0 ? Number(payload.currentPage) : 1;
-
-        renderLogs(logs);
-        renderPagination();
-      } catch (error) {
-        if (error.message === 'Unauthorized') {
-          return;
-        }
-
-        els.logTableBody.innerHTML = `<tr><td colspan="4" class="empty">${escapeHtml(error.message)}</td></tr>`;
-        state.totalPages = 1;
-        state.page = 1;
-        renderPagination();
-      }
-    }
-
-    function setAutoRefresh(on) {
-      state.autoRefresh = on;
-      els.autoRefreshToggle.checked = on;
-
-      if (state.refreshTimer) {
-        clearInterval(state.refreshTimer);
-        state.refreshTimer = null;
-      }
-
-      if (on) {
-        state.refreshTimer = setInterval(() => {
+      useEffect(() => {
+        if (!autoRefresh) return undefined;
+        const timer = setInterval(() => {
           void loadLogs();
         }, 5000);
-      }
-    }
+        return () => clearInterval(timer);
+      }, [autoRefresh, loadLogs]);
 
-    function pointerClientX(event) {
-      if (event.touches && event.touches.length > 0) {
-        return event.touches[0].clientX;
-      }
-      return event.clientX;
-    }
+      const clearFilters = () => {
+        setLevel("");
+        setFile("");
+        setSearchInput("");
+        setSearch("");
+        setPage(1);
+      };
 
-    let isResizing = false;
-    let resizeStartX = 0;
-    let resizeStartWidth = SIDEBAR_DEFAULT_WIDTH;
-
-    function beginSidebarResize(event) {
-      if (isMobileViewport()) {
-        return;
-      }
-
-      isResizing = true;
-      resizeStartX = pointerClientX(event);
-      resizeStartWidth = state.sidebarCollapsed
-        ? SIDEBAR_COLLAPSED_WIDTH
-        : clamp(state.sidebarWidth, SIDEBAR_MIN_EXPANDED_WIDTH, SIDEBAR_MAX_WIDTH);
-
-      els.resizeHandle.classList.add('active');
-      document.body.style.cursor = 'col-resize';
-      document.body.style.userSelect = 'none';
-      event.preventDefault();
-    }
-
-    function onSidebarResize(event) {
-      if (!isResizing) {
-        return;
-      }
-
-      const delta = pointerClientX(event) - resizeStartX;
-      const nextWidth = clamp(resizeStartWidth + delta, SIDEBAR_COLLAPSED_WIDTH, SIDEBAR_MAX_WIDTH);
-
-      if (nextWidth < SIDEBAR_MIN_EXPANDED_WIDTH) {
-        state.sidebarCollapsed = true;
-      } else {
-        state.sidebarCollapsed = false;
-        state.sidebarWidth = nextWidth;
-      }
-
-      updateSidebarLayout();
-      event.preventDefault();
-    }
-
-    function endSidebarResize() {
-      if (!isResizing) {
-        return;
-      }
-
-      isResizing = false;
-      els.resizeHandle.classList.remove('active');
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-
-      if (!state.sidebarCollapsed) {
-        state.sidebarWidth = clamp(state.sidebarWidth, SIDEBAR_MIN_EXPANDED_WIDTH, SIDEBAR_MAX_WIDTH);
-      }
-
-      saveSidebarPrefs();
-      updateSidebarLayout();
-    }
-
-    let searchTimer = null;
-
-    levelButtons.forEach((button) => {
-      button.addEventListener('click', () => {
-        state.level = button.dataset.level || '';
-        state.page = 1;
-        renderLevelFilters();
-        void loadLogs();
-        if (isMobileViewport()) {
-          setSidebarOpen(false);
+      const saveToken = () => {
+        const nextToken = authDraft.trim();
+        setToken(nextToken);
+        if (nextToken) {
+          localStorage.setItem("logViewerToken", nextToken);
+        } else {
+          localStorage.removeItem("logViewerToken");
         }
-      });
-    });
+        setAuthOpen(false);
+      };
 
-    els.searchInput.addEventListener('input', () => {
-      if (searchTimer) clearTimeout(searchTimer);
-      searchTimer = setTimeout(() => {
-        state.search = els.searchInput.value.trim();
-        state.page = 1;
-        void loadLogs();
-      }, 300);
-    });
+      const rows = logs.map((entry, index) =>
+        html`
+          <${Table.Tr} key=${`${entry.timestamp || "no-ts"}-${index}`}>
+            <${Table.Td}>
+              <${Badge} color=${levelBadgeColor(entry.level)} variant="light">
+                ${entry.level || "INFO"}
+              </${Badge}>
+            </${Table.Td}>
+            <${Table.Td}>
+              <${Text} size="sm" style=${{ whiteSpace: "pre-wrap", fontFamily: "monospace" }}>
+                ${entry.message || ""}
+              </${Text}>
+            </${Table.Td}>
+            <${Table.Td}>
+              <${Text} size="sm" c="dimmed">
+                ${entry.service || "-"}
+              </${Text}>
+            </${Table.Td}>
+            <${Table.Td}>
+              <${Text} size="sm" c="dimmed" ta="right">
+                ${formatTimestamp(entry.timestamp)}
+              </${Text}>
+            </${Table.Td}>
+          </${Table.Tr}>
+        `
+      );
 
-    els.prevPage.addEventListener('click', () => {
-      if (state.page <= 1) return;
-      state.page -= 1;
-      void loadLogs();
-    });
+      return html`
+        <${MantineProvider} defaultColorScheme="light">
+          <${AppShell}
+            header=${{ height: 56 }}
+            navbar=${{ width: 260, breakpoint: "sm", collapsed: { mobile: !mobileNavOpen } }}
+          >
+            <${AppShell.Header}>
+              <${Group} h="100%" px="md" justify="space-between">
+                <${Group} gap="sm">
+                  <${Burger}
+                    opened=${mobileNavOpen}
+                    onClick=${() => setMobileNavOpen((open) => !open)}
+                    hiddenFrom="sm"
+                    size="sm"
+                  />
+                  <${Title} order=${4}>Log Viewer</${Title}>
+                </${Group}>
+                <${Text} size="sm" c="dimmed">${totalLogs} logs</${Text}>
+              </${Group}>
+            </${AppShell.Header}>
 
-    els.nextPage.addEventListener('click', () => {
-      if (state.page >= state.totalPages) return;
-      state.page += 1;
-      void loadLogs();
-    });
+            <${AppShell.Navbar} p="md">
+              <${Stack} h="100%" gap="md">
+                <${Stack} gap="xs">
+                  <${Text} fw=${600} size="sm">Level</${Text}>
+                  ${LEVEL_OPTIONS.map(
+                    (option) => html`
+                      <${Button}
+                        key=${option.value || "all-levels"}
+                        variant=${level === option.value ? "filled" : "light"}
+                        justify="flex-start"
+                        onClick=${() => {
+                          setLevel(option.value);
+                          setPage(1);
+                          setMobileNavOpen(false);
+                        }}
+                      >
+                        ${option.label}
+                      </${Button}>
+                    `
+                  )}
+                </${Stack}>
 
-    els.autoRefreshToggle.addEventListener('change', () => {
-      setAutoRefresh(els.autoRefreshToggle.checked);
-    });
+                <${Stack} gap="xs" style=${{ flex: "1 1 auto", minHeight: 0 }}>
+                  <${Text} fw=${600} size="sm">Files</${Text}>
+                  <${ScrollArea} h="100%">
+                    <${Stack} gap="xs" pr="xs">
+                      <${Button}
+                        variant=${file === "" ? "filled" : "light"}
+                        justify="flex-start"
+                        onClick=${() => {
+                          setFile("");
+                          setPage(1);
+                          setMobileNavOpen(false);
+                        }}
+                      >
+                        All files
+                      </${Button}>
+                      ${fileNames.map(
+                        (name) => html`
+                          <${Button}
+                            key=${name}
+                            variant=${file === name ? "filled" : "light"}
+                            justify="flex-start"
+                            onClick=${() => {
+                              setFile(name);
+                              setPage(1);
+                              setMobileNavOpen(false);
+                            }}
+                          >
+                            ${name}
+                          </${Button}>
+                        `
+                      )}
+                    </${Stack}>
+                  </${ScrollArea}>
+                </${Stack}>
+              </${Stack}>
+            </${AppShell.Navbar}>
 
-    els.clearFilters.addEventListener('click', () => {
-      state.level = '';
-      state.file = '';
-      state.search = '';
-      state.page = 1;
-      els.searchInput.value = '';
-      renderLevelFilters();
-      renderFileFilters();
-      void loadLogs();
-    });
+            <${AppShell.Main}>
+              <${Stack} p="md" gap="md">
+                <${Group} align="center" wrap="wrap">
+                  <${TextInput}
+                    placeholder="Search in logs"
+                    aria-label="Search in logs"
+                    value=${searchInput}
+                    onChange=${(event) => {
+                      setSearchInput(event.currentTarget.value);
+                      setPage(1);
+                    }}
+                    style=${{ flex: "1 1 320px" }}
+                  />
+                  <${Switch}
+                    label="Auto refresh"
+                    checked=${autoRefresh}
+                    onChange=${(event) => setAutoRefresh(event.currentTarget.checked)}
+                    style=${{ alignSelf: "center" }}
+                  />
+                  <${Button} color="red" variant="light" onClick=${clearFilters} style=${{ alignSelf: "center" }}>
+                    Clear filters
+                  </${Button}>
+                </${Group}>
 
-    els.themeToggle.addEventListener('click', () => {
-      state.theme = state.theme === 'dark' ? 'light' : 'dark';
-      applyTheme();
-    });
+                <${Paper} withBorder radius="md">
+                  <${ScrollArea} type="auto">
+                    <${Table} striped highlightOnHover withTableBorder withColumnBorders>
+                      <${Table.Thead}>
+                        <${Table.Tr}>
+                          <${Table.Th}>Level</${Table.Th}>
+                          <${Table.Th}>Message</${Table.Th}>
+                          <${Table.Th}>Service</${Table.Th}>
+                          <${Table.Th} ta="right">Timestamp</${Table.Th}>
+                        </${Table.Tr}>
+                      </${Table.Thead}>
+                      <${Table.Tbody}>
+                        ${loading &&
+                        logs.length === 0 &&
+                        html`
+                          <${Table.Tr}>
+                            <${Table.Td} colSpan=${4}>
+                              <${Group} justify="center" py="md">
+                                <${Loader} size="sm" />
+                              </${Group}>
+                            </${Table.Td}>
+                          </${Table.Tr}>
+                        `}
+                        ${!loading &&
+                        error &&
+                        html`
+                          <${Table.Tr}>
+                            <${Table.Td} colSpan=${4}>
+                              <${Text} c="red" ta="center" py="md">${error}</${Text}>
+                            </${Table.Td}>
+                          </${Table.Tr}>
+                        `}
+                        ${!loading &&
+                        !error &&
+                        logs.length === 0 &&
+                        html`
+                          <${Table.Tr}>
+                            <${Table.Td} colSpan=${4}>
+                              <${Text} c="dimmed" ta="center" py="md">No logs found.</${Text}>
+                            </${Table.Td}>
+                          </${Table.Tr}>
+                        `}
+                        ${!error && rows}
+                      </${Table.Tbody}>
+                    </${Table}>
+                  </${ScrollArea}>
+                </${Paper}>
 
-    els.authSave.addEventListener('click', async () => {
-      state.token = els.authTokenInput.value.trim();
-      if (state.token) {
-        localStorage.setItem('logViewerToken', state.token);
-      } else {
-        localStorage.removeItem('logViewerToken');
-      }
+                <${Group} justify="space-between">
+                  <${Text} size="sm" c="dimmed">Page ${page} of ${totalPages}</${Text}>
+                  <${Group} gap="xs">
+                    <${Button}
+                      variant="default"
+                      disabled=${page <= 1}
+                      onClick=${() => setPage((current) => Math.max(1, current - 1))}
+                    >
+                      Previous
+                    </${Button}>
+                    <${Button}
+                      variant="default"
+                      disabled=${page >= totalPages}
+                      onClick=${() => setPage((current) => Math.min(totalPages, current + 1))}
+                    >
+                      Next
+                    </${Button}>
+                  </${Group}>
+                </${Group}>
+              </${Stack}>
+            </${AppShell.Main}>
+          </${AppShell}>
 
-      hideAuthModal();
-      await loadFiles();
-      await loadLogs();
-    });
+          <${Modal}
+            opened=${authOpen}
+            onClose=${() => setAuthOpen(false)}
+            title="Authentication required"
+            centered
+          >
+            <${Stack}>
+              <${Text} size="sm" c="dimmed">
+                Provide the configured token to read logs.
+              </${Text}>
+              <${PasswordInput}
+                placeholder="Bearer token"
+                value=${authDraft}
+                onChange=${(event) => setAuthDraft(event.currentTarget.value)}
+                onKeyDown=${(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    saveToken();
+                  }
+                }}
+              />
+              <${Group} justify="flex-end">
+                <${Button} variant="default" onClick=${() => setAuthOpen(false)}>Cancel</${Button}>
+                <${Button} onClick=${saveToken}>Save token</${Button}>
+              </${Group}>
+            </${Stack}>
+          </${Modal}>
+        </${MantineProvider}>
+      `;
+    }
 
-    els.authCancel.addEventListener('click', () => {
-      hideAuthModal();
-    });
-
-    els.menuToggle.addEventListener('click', () => {
-      setSidebarOpen(!state.sidebarOpen);
-    });
-
-    els.overlay.addEventListener('click', () => {
-      setSidebarOpen(false);
-    });
-
-    els.collapseToggle.addEventListener('click', () => {
-      if (isMobileViewport()) {
-        return;
-      }
-
-      state.sidebarCollapsed = !state.sidebarCollapsed;
-      if (!state.sidebarCollapsed && state.sidebarWidth < SIDEBAR_MIN_EXPANDED_WIDTH) {
-        state.sidebarWidth = SIDEBAR_DEFAULT_WIDTH;
-      }
-      saveSidebarPrefs();
-      updateSidebarLayout();
-    });
-
-    els.filesCollapsedBadge.addEventListener('click', () => {
-      if (isMobileViewport()) {
-        return;
-      }
-
-      if (state.sidebarCollapsed) {
-        state.sidebarCollapsed = false;
-        if (state.sidebarWidth < SIDEBAR_MIN_EXPANDED_WIDTH) {
-          state.sidebarWidth = SIDEBAR_DEFAULT_WIDTH;
-        }
-        saveSidebarPrefs();
-        updateSidebarLayout();
-      }
-    });
-
-    els.resizeHandle.addEventListener('mousedown', beginSidebarResize);
-    els.resizeHandle.addEventListener('touchstart', beginSidebarResize, { passive: false });
-    document.addEventListener('mousemove', onSidebarResize);
-    document.addEventListener('touchmove', onSidebarResize, { passive: false });
-    document.addEventListener('mouseup', endSidebarResize);
-    document.addEventListener('touchend', endSidebarResize);
-
-    window.addEventListener('resize', () => {
-      if (!isMobileViewport()) {
-        setSidebarOpen(false);
-      }
-      updateSidebarLayout();
-    });
-
-    (async function init() {
-      applyTheme();
-      updateSidebarLayout();
-      renderLevelFilters();
-      renderFileFilters();
-      renderPagination();
-      setAutoRefresh(true);
-      await loadFiles();
-      await loadLogs();
-    })();
+    const root = createRoot(document.getElementById("root"));
+    root.render(html`<${App} />`);
   </script>
 </body>
 </html>
