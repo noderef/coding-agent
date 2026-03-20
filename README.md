@@ -15,194 +15,72 @@
 </p>
 </div>
 
-## What does the Agent?
+## Introduction
 
-- Polls assigned GitHub issues in configured repos.
-- Creates per-issue branch/worktree and runs an autonomous coding agent.
-- Validates safety constraints and optional install/test commands.
-- Commits, pushes, and opens draft PRs.
-- Handles PR feedback via `@bot` mentions.
-- Tracks processed feedback comments in JSON state.
+An experiment in agentic coding, built to support [NodeRef](https://github.com/noderef/noderef). The agent picks up GitHub issues, writes code, and opens draft PRs on its own. It also responds to PR feedback through `@bot` mentions.
 
-## Design goals
-
-- Production-lean, simple runtime.
-- Filesystem + shell scripts only.
-- No web app, no DB, no queue, no docker runtime dependency.
-- Human-in-the-loop communication only in GitHub comments.
+The stack is intentionally minimal: shell scripts, cron, and the filesystem. No database, no web framework, no Docker runtime. [LiteLLM](https://github.com/BerriAI/litellm) sits in front as an LLM proxy, so switching models is just a one-line change in `.env`.
 
 ## Quick start
 
 ```bash
-git clone <your-orchestration-repo-url> coding-agent
+git clone https://github.com/noderef/coding-agent.git
 cd coding-agent
 ./install.sh
 ```
 
-Then:
-
-1. Edit `.env`.
+1. Edit `.env` (created from `.env.example` by the installer).
 2. Run `gh auth login`.
-3. Configure Cline auth (custom LiteLLM endpoint is supported):
-   - `cline auth -p openai -k "$AGENT_API_KEY" -b "$AGENT_BASE_URL" -m "$AGENT_MODEL"`
-4. Configure `configs/repos.json`.
-5. Run `./bin/doctor`.
-6. Run once manually:
-   - `./agents/issue-worker.sh`
-   - `./agents/feedback-worker.sh`
+3. Configure Cline auth:
+   ```bash
+   cline auth -p openai -k "$AGENT_API_KEY" -b "$AGENT_BASE_URL" -m "$AGENT_MODEL"
+   ```
+4. Add your repos to `configs/repos.json`.
+5. Run `./bin/doctor` to verify everything.
+6. Try it out:
+   ```bash
+   ./agents/issue-worker.sh
+   ./agents/feedback-worker.sh
+   ```
 
-If you use an internal/self-signed CA, set this once in your shell profile:
+Cron entries are installed automatically by `install.sh` (disable with `INSTALL_CRON=false`).
 
-```bash
-echo 'export NODE_EXTRA_CA_CERTS=/usr/local/share/ca-certificates/homelab-ca.crt' >> ~/.bashrc
-source ~/.bashrc
-```
+## Doctor
 
-## Install deps (`install.sh`)
-
-Default behavior:
-- Installs system deps (`git`, `jq`, `gh`, `flock`, `curl`, `cron`, and a supported Node.js runtime with npm).
-- On apt-based systems, removes conflicting distro `npm` packages and upgrades/install Node.js 22 automatically if the distro default is older than Node 20.
-- Installs `pnpm` (via Corepack, with npm fallback).
-- Creates `.env` from `.env.example` if missing.
-- Installs Cline CLI with `npm install -g cline`.
-- Installs/updates cron entries for both workers.
-
-Optional overrides:
+Checks that all dependencies, auth, config, and runtime directories are in order.
 
 ```bash
-CLINE_VERSION=latest ./install.sh
-INSTALL_CRON=false ./install.sh
+./bin/doctor
 ```
 
-## Runtime Flow
+## Log viewer
 
-### Issue Worker
+Web UI for tailing worker logs.
 
-1. Finds oldest open issue assigned to `AGENT_GITHUB_USERNAME` in enabled repos.
-2. Comments start + adds `in-progress` (best effort).
-3. Syncs local repo checkout.
-4. Creates branch/worktree.
-5. Runs agent prompt.
-6. Blocks forbidden file changes.
-7. Runs configured install/test commands (if set).
-8. On success: commit, push, create draft PR, comment issue, update labels, unassign bot.
-9. On no-op/failure/timeout: comment issue and exit safely.
+```bash
+cd log-viewer && npm install && cd ..
 
-### Feedback Worker
+./bin/log-viewer start
+./bin/log-viewer stop
+./bin/log-viewer status
+```
 
-1. Finds open bot PRs in enabled repos.
-2. Scans issue comments + review comments.
-3. Filters comments that:
-   - mention `@bot`
-   - are by allowed users
-   - are not already processed
-4. Runs targeted patch on PR head branch worktree.
-5. Validates forbidden files + install/test commands.
-6. Pushes follow-up commit and comments on PR.
-7. Marks comment processed in state JSON (even on no-op/failure).
+Runs on `http://localhost:3000` by default. Change the port with `LOG_VIEWER_PORT` in `.env`.
 
 ## Configuration
 
-### `.env` (important vars)
+All settings live in `.env`. The important ones:
 
-- `AGENT_GITHUB_USERNAME`
-- `AUTHORIZED_USERS`
-- `AGENT_BACKEND=cline`
-- `AGENT_CMD` (`cline` is the portable default; avoid hardcoding `/usr/local/bin/cline`)
-- `AGENT_MODEL`
-- `AGENT_BASE_URL` (recommended; used for compatibility env hints and `cline auth -b`)
-- `AGENT_API_KEY` (recommended; used for compatibility env hints and `cline auth -k`)
-- `PROJECTS_DIR`, `RUNTIME_DIR`, `STATE_DIR`, `LOG_DIR`
-- `ISSUE_TIMEOUT_MINUTES`, `FEEDBACK_TIMEOUT_MINUTES`
-- `MIN_AVAILABLE_MB`, `MAX_OPEN_AGENT_PRS`, `DAILY_FEEDBACK_LIMIT`
-- `CONFIG_FILE`
+| Variable | Purpose |
+|---|---|
+| `AGENT_GITHUB_USERNAME` | Bot's GitHub identity |
+| `AUTHORIZED_USERS` | Who can trigger feedback via `@bot` |
+| `AGENT_MODEL` | Which model to use |
+| `AGENT_BASE_URL` / `AGENT_API_KEY` | LiteLLM endpoint credentials |
+| `CONFIG_FILE` | Path to `configs/repos.json` |
 
-Model switching:
-- For worker runs, update `AGENT_MODEL` in `.env`.
-- For ad-hoc Cline CLI runs, use `cline -m <model> "<prompt>"`.
-- To change the default saved in Cline auth config, run `cline auth -p openai -m <model>`.
-
-Path behavior:
-- `PROJECTS_DIR` = persistent repo clones (`owner/repo`).
-- `RUNTIME_DIR/worktrees` = temporary working directories where agent edits/commits happen.
-- Defaults are inside this orchestration repository (`./projects`, `./worktrees`) and are gitignored.
-
-### `configs/repos.json`
-
-Per repo:
-- `slug`
-- `enabled`
-- `local_path`
-- `instructions_file` (optional)
-- `install_command` (optional)
-- `test_command` (optional)
-- `forbidden_paths` (optional)
-
-Only `enabled: true` repos are processed.
-
-## Issue Templates
-
-This repo uses two Markdown issue templates:
-- `.github/ISSUE_TEMPLATE/bug.md`
-- `.github/ISSUE_TEMPLATE/feature.md`
-
-For agent quality, the fields that matter most are:
-- `Acceptance criteria`
-- `Out of scope`
-- `Constraints`
-- `Test plan`
-
-If those four fields are weak, the agent will usually compensate by making broader assumptions than you want.
-
-## Safety Defaults
-
-- Never push default branch.
-- Never auto-merge PRs.
-- Shared `flock` lock to avoid concurrent repo mutations.
-- Global forbidden paths include `.env` and secret-like paths.
-- Per-repo forbidden paths enforced before commit/push.
-- Worker operations are owned by shell scripts (not LLM free-form behavior).
-
-## Operations cheat sheet
-
-Logs:
-- `logs/issue-worker-YYYY-MM-DD.log`
-- `logs/feedback-worker-YYYY-MM-DD.log`
-- `logs/cron-issue.log`
-- `logs/cron-feedback.log`
-
-State:
-- `state/processed-feedback.json`
-- `state/worker.lock`
-
-Recover stale worktree:
-
-```bash
-cd <repo-local-path>
-git worktree list
-git worktree remove --force <stale-worktree-path>
-```
-
-Disable repo quickly:
-- Set `"enabled": false` in `configs/repos.json`.
-
-Reprocess one feedback comment:
-
-```bash
-jq 'del(.processed["owner/repo#123#issue_comment#456789"])' state/processed-feedback.json > /tmp/processed.json
-mv /tmp/processed.json state/processed-feedback.json
-```
-
-## Failure modes (Short)
-
-- Auth failure (`gh`): run `gh auth login`.
-- Rate limit/API errors: worker skips this cycle, cron retries.
-- Clone/fetch/worktree conflict: task fails safely and logs details.
-- No code changes: worker posts no-op comment.
-- Forbidden files touched: patch blocked.
-- Timeout/validation failed: no push, status comment posted.
+Per-repo settings go in `configs/repos.json`: `slug`, `enabled`, `install_command`, `test_command`, `forbidden_paths`, and an optional `instructions_file`.
 
 ## License
 
-Apache License 2.0. See [LICENSE](./LICENSE).
+Apache 2.0. See [LICENSE](./LICENSE).
