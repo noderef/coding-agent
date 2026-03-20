@@ -1,7 +1,7 @@
 <div align="center">
 <p>
-  <img src="./assets/logo-center-black.svg#gh-light-mode-only" alt="coding-agent" width="280" />
-  <img src="./assets/logo-center-white.svg#gh-dark-mode-only" alt="coding-agent" width="280" />
+  <img src="./assets/logo-center-black.svg#gh-light-mode-only" alt="coding-agent" width="380" />
+  <img src="./assets/logo-center-white.svg#gh-dark-mode-only" alt="coding-agent" width="380" />
 
   <h3>Autonomous Coding Agent</h3>
 </p>
